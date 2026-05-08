@@ -73,7 +73,18 @@ def create_access_token(data: dict):
 
 def send_email(to_email, subject, body):
     try:
-        pass
+        if not SMTP_USER or not SMTP_PASSWORD:
+            raise ValueError("SMTP credentials not configured in environment variables")
+        
+        msg = MIMEText(body)
+        msg['Subject'] = subject
+        msg['From'] = SMTP_USER
+        msg['To'] = to_email
+        
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(SMTP_USER, to_email, msg.as_string())
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
 
