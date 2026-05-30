@@ -70,48 +70,18 @@ class VerifyOTPRequest(BaseModel):
 def create_access_token(data: dict):
     pass
 
-
 def send_email(to_email, subject, body):
-    try:
-        print("========== EMAIL DEBUG ==========")
-        print(f"SMTP_USER exists: {bool(SMTP_USER)}")
-        print(f"SMTP_PASSWORD exists: {bool(SMTP_PASSWORD)}")
-
-        if not SMTP_USER or not SMTP_PASSWORD:
-            raise ValueError(
-                f"SMTP credentials missing. USER={bool(SMTP_USER)}, PASS={bool(SMTP_PASSWORD)}"
-            )
-
-        msg = MIMEText(body)
-        msg['Subject'] = subject
-        msg['From'] = SMTP_USER
-        msg['To'] = to_email
-
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            print("SMTP STEP 1: Connecting")
-            server.starttls()
-
-            print("SMTP STEP 2: Logging in")
-            server.login(SMTP_USER, SMTP_PASSWORD)
-
-            print("SMTP STEP 3: Sending email")
-            server.sendmail(SMTP_USER, to_email, msg.as_string())
-
-            print("SMTP STEP 4: Email sent successfully")
-
-    except Exception as e:
-        print("EMAIL ERROR:", str(e))
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to send email: {str(e)}"
-        )
-
+    print("========== OTP EMAIL ==========")
+    print("TO:", to_email)
+    print("SUBJECT:", subject)
+    print("BODY:", body)
+    print("===============================")
+    
 @router.api_route("/", methods=["GET", "HEAD"])
 async def root():
     return {"message": "Welcome to Gradex Backend!"}
 
 
-@router.post("/v1/send-otp")
 @router.post("/v1/send-otp")
 async def send_otp(request: SendOTPRequest):
     try:
