@@ -25,7 +25,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
+SMTP_PORT = 465  # Changed from 587 to 465 (SSL) for better Render compatibility
 SMTP_USER = os.getenv("USER")
 SMTP_PASSWORD = os.getenv("PASS")
 
@@ -75,8 +75,33 @@ def send_email(to_email, subject, body):
     print("TO:", to_email)
     print("SUBJECT:", subject)
     print("BODY:", body)
+    print("SMTP USER EXISTS:", bool(SMTP_USER))
+    print("SMTP PASSWORD EXISTS:", bool(SMTP_PASSWORD))
     print("===============================")
     
+    try:
+        # Create message
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = SMTP_USER
+        msg["To"] = to_email
+        
+        print("SMTP STEP 1: Message created")
+        
+        # Connect using SSL (Port 465)
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+            print("SMTP STEP 2: Connected to Gmail")
+            
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            print("SMTP STEP 3: Logged in successfully")
+            
+            server.sendmail(SMTP_USER, to_email, msg.as_string())
+            print("SMTP STEP 4: Email sent successfully")
+    
+    except Exception as e:
+        print(f"SMTP ERROR: {type(e).__name__}: {str(e)}")
+        raise
+
 @router.api_route("/", methods=["GET", "HEAD"])
 async def root():
     return {"message": "Welcome to Gradex Backend!"}
