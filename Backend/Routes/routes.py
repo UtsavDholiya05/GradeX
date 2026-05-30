@@ -73,21 +73,38 @@ def create_access_token(data: dict):
 
 def send_email(to_email, subject, body):
     try:
+        print("========== EMAIL DEBUG ==========")
+        print(f"SMTP_USER exists: {bool(SMTP_USER)}")
+        print(f"SMTP_PASSWORD exists: {bool(SMTP_PASSWORD)}")
+
         if not SMTP_USER or not SMTP_PASSWORD:
-            raise ValueError("SMTP credentials not configured in environment variables")
-        
+            raise ValueError(
+                f"SMTP credentials missing. USER={bool(SMTP_USER)}, PASS={bool(SMTP_PASSWORD)}"
+            )
+
         msg = MIMEText(body)
         msg['Subject'] = subject
         msg['From'] = SMTP_USER
         msg['To'] = to_email
-        
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_USER, to_email, msg.as_string())
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
 
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            print("SMTP STEP 1: Connecting")
+            server.starttls()
+
+            print("SMTP STEP 2: Logging in")
+            server.login(SMTP_USER, SMTP_PASSWORD)
+
+            print("SMTP STEP 3: Sending email")
+            server.sendmail(SMTP_USER, to_email, msg.as_string())
+
+            print("SMTP STEP 4: Email sent successfully")
+
+    except Exception as e:
+        print("EMAIL ERROR:", str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to send email: {str(e)}"
+        )
 
 @router.api_route("/", methods=["GET", "HEAD"])
 async def root():
@@ -95,19 +112,58 @@ async def root():
 
 
 @router.post("/v1/send-otp")
+@router.post("/v1/send-otp")
 async def send_otp(request: SendOTPRequest):
-    otp = f"{random.randint(100000, 999999)}"
-    expires = datetime.datetime.now() + datetime.timedelta(minutes=5)
-    
-    db.users.update_one(
-        {"email": request.email},
-        {"$set": {"email": request.email, "otp": otp, "otpExpires": expires}, "$setOnInsert": {"paperHistory": []}},
-        upsert=True,
-    )
-    
-    send_email(request.email, "Your OTP for Gradex", f"Your OTP is {otp}. It is valid for 5 minutes.")
-    return {"success": True, "message": "OTP sent."}
+    try:
+        print("========== SEND OTP START ==========")
+        print(f"Email received: {request.email}")
 
+        otp = f"{random.randint(100000, 999999)}"
+        expires = datetime.datetime.now() + datetime.timedelta(minutes=5)
+
+        print("STEP 1: OTP generated")
+
+        db.users.update_one(
+            {"email": request.email},
+            {
+                "$set": {
+                    "email": request.email,
+                    "otp": otp,
+                    "otpExpires": expires
+                },
+                "$setOnInsert": {
+                    "paperHistory": []
+                }
+            },
+            upsert=True,
+        )
+
+        print("STEP 2: MongoDB update successful")
+
+        send_email(
+            request.email,
+            "Your OTP for Gradex",
+            f"Your OTP is {otp}. It is valid for 5 minutes."
+        )
+
+        print("STEP 3: Email sent successfully")
+        print("========== SEND OTP SUCCESS ==========")
+
+        return {
+            "success": True,
+            "message": "OTP sent."
+        }
+
+    except Exception as e:
+        print("========== SEND OTP ERROR ==========")
+        print(type(e).__name__)
+        print(str(e))
+        print("====================================")
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 @router.post("/v1/verify-otp")
 async def verify_otp(request: VerifyOTPRequest):
