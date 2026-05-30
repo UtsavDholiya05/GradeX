@@ -1,16 +1,8 @@
 {
-  "buildCommand": "cd Frontend && npm install && npm run build",
+  "buildCommand": "cd Frontend && npm run build",
   "outputDirectory": "Frontend/dist",
   "framework": "vite",
-  "env": {
-    "PYTHONUNBUFFERED": "1"
-  },
-  "installCommand": "pip install -r Backend/requirements.txt && cd Frontend && npm install",
   "rewrites": [
-    {
-      "source": "/v1/(.*)",
-      "destination": "/Backend/app.py"
-    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
