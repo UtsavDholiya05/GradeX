@@ -68,7 +68,13 @@ class VerifyOTPRequest(BaseModel):
 
 
 def create_access_token(data: dict):
-    pass
+    """Create JWT access token"""
+    token = jwt.encode(
+        data,
+        os.getenv("JWT_SECRET"),
+        algorithm="HS256"
+    )
+    return token
 
 def send_email(to_email, subject, body):
     print("========== OTP EMAIL ==========")
@@ -176,6 +182,37 @@ async def verify_otp(request: VerifyOTPRequest):
     
     token = create_access_token({"user_id": str(user["_id"])})
     return {"success": True, "message": "OTP verified", "token": token}
+
+@router.get("/v1/auth")
+async def validate_auth(request: Request):
+    """Validate JWT token and return user info"""
+    try:
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Missing or invalid token")
+        
+        token = auth_header.split(" ")[1]
+        payload = jwt.decode(token, os.getenv("JWT_SECRET"), algorithms=["HS256"])
+        
+        user_id = payload.get("user_id")
+        user = db.users.find_one({"_id": ObjectId(user_id)})
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return {
+            "success": True,
+            "user_id": str(user["_id"]),
+            "email": user.get("email"),
+            "institute_name": user.get("institute_name", "")
+        }
+    
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/v1/upload")
