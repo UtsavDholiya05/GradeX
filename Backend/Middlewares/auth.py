@@ -4,59 +4,30 @@ from starlette.responses import JSONResponse
 import jwt
 import os
 
-PUBLIC_PATHS = [
-    "/",
-    "/auth",
-    "/docs",
-    "/openapi.json",
-    "/redoc",
-    "/v1/send-otp",
-    "/v1/verify-otp",
-    "/v1/auth",
-    "/favicon.ico",
-]
+PUBLIC_PATHS = ["/", "/v1/send-otp", "/v1/verify-otp", "/favicon.ico"]
 
 class JWTMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-
-        # Allow CORS preflight requests
         if request.method == "OPTIONS":
             return await call_next(request)
-
+        
         path = request.url.path
 
-        # Public routes
         if path in PUBLIC_PATHS:
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization")
-
         if not auth_header or not auth_header.startswith("Bearer "):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Missing or invalid token"}
-            )
+            return JSONResponse(status_code=401, content={"detail": "Missing or invalid token"})
 
         token = auth_header.split(" ")[1]
 
         try:
-            payload = jwt.decode(
-                token,
-                os.getenv("JWT_SECRET"),
-                algorithms=["HS256"]
-            )
+            payload = jwt.decode(token, os.getenv("JWT_SECRET"), algorithms=["HS256"])
             request.state.user = payload
-
         except jwt.ExpiredSignatureError:
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Token expired"}
-            )
-
+            return JSONResponse(status_code=401, content={"detail": "Token expired"})
         except jwt.InvalidTokenError:
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Invalid token"}
-            )
+            return JSONResponse(status_code=401, content={"detail": "Invalid token"})
 
         return await call_next(request)

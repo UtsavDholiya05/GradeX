@@ -25,7 +25,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 465  # Changed from 587 to 465 (SSL) for better Render compatibility
+SMTP_PORT = 587
 SMTP_USER = os.getenv("USER")
 SMTP_PASSWORD = os.getenv("PASS")
 
@@ -68,134 +68,35 @@ class VerifyOTPRequest(BaseModel):
 
 
 def create_access_token(data: dict):
-    """Create JWT access token"""
-    token = jwt.encode(
-        data,
-        os.getenv("JWT_SECRET"),
-        algorithm="HS256"
-    )
-    return token
+    pass
+
 
 def send_email(to_email, subject, body):
-    print("========== OTP EMAIL ==========")
-    print("TO:", to_email)
-    print("SUBJECT:", subject)
-    print("BODY:", body)
-    print("SMTP USER EXISTS:", bool(SMTP_USER))
-    print("SMTP PASSWORD EXISTS:", bool(SMTP_PASSWORD))
-    print("===============================")
-    
     try:
-        # Create message
-        msg = MIMEText(body)
-        msg["Subject"] = subject
-        msg["From"] = SMTP_USER
-        msg["To"] = to_email
-        
-        print("SMTP STEP 1: Message created")
-        
-        # Connect using SSL (Port 465)
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-            print("SMTP STEP 2: Connected to Gmail")
-            
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            print("SMTP STEP 3: Logged in successfully")
-            
-            server.sendmail(SMTP_USER, to_email, msg.as_string())
-            print("SMTP STEP 4: Email sent successfully")
-    
+        pass
     except Exception as e:
-        print(f"SMTP ERROR: {type(e).__name__}: {str(e)}")
-        raise
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
+
 
 @router.api_route("/", methods=["GET", "HEAD"])
 async def root():
     return {"message": "Welcome to Gradex Backend!"}
 
-@router.get("/auth")
-async def validate_auth(request: Request):
-    """Validate JWT token and return user info"""
-    try:
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Missing or invalid token")
-        
-        token = auth_header.split(" ")[1]
-        payload = jwt.decode(token, os.getenv("JWT_SECRET"), algorithms=["HS256"])
-        
-        user_id = payload.get("user_id")
-        user = db.users.find_one({"_id": ObjectId(user_id)})
-        
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        return {
-            "success": True,
-            "user_id": str(user["_id"]),
-            "email": user.get("email"),
-            "institute_name": user.get("institute_name", "")
-        }
-    
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.post("/v1/send-otp")
 async def send_otp(request: SendOTPRequest):
-    try:
-        print("========== SEND OTP START ==========")
-        print(f"Email received: {request.email}")
+    otp = f"{random.randint(100000, 999999)}"
+    expires = datetime.datetime.now() + datetime.timedelta(minutes=5)
+    
+    db.users.update_one(
+        {"email": request.email},
+        {"$set": {"email": request.email, "otp": otp, "otpExpires": expires}, "$setOnInsert": {"paperHistory": []}},
+        upsert=True,
+    )
+    
+    send_email(request.email, "Your OTP for Gradex", f"Your OTP is {otp}. It is valid for 5 minutes.")
+    return {"success": True, "message": "OTP sent."}
 
-        otp = f"{random.randint(100000, 999999)}"
-        expires = datetime.datetime.now() + datetime.timedelta(minutes=5)
-
-        print("STEP 1: OTP generated")
-
-        db.users.update_one(
-            {"email": request.email},
-            {
-                "$set": {
-                    "email": request.email,
-                    "otp": otp,
-                    "otpExpires": expires
-                },
-                "$setOnInsert": {
-                    "paperHistory": []
-                }
-            },
-            upsert=True,
-        )
-
-        print("STEP 2: MongoDB update successful")
-
-        send_email(
-            request.email,
-            "Your OTP for Gradex",
-            f"Your OTP is {otp}. It is valid for 5 minutes."
-        )
-
-        print("STEP 3: Email sent successfully")
-        print("========== SEND OTP SUCCESS ==========")
-
-        return {
-            "success": True,
-            "message": "OTP sent."
-        }
-
-    except Exception as e:
-        print("========== SEND OTP ERROR ==========")
-        print(type(e).__name__)
-        print(str(e))
-        print("====================================")
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
 
 @router.post("/v1/verify-otp")
 async def verify_otp(request: VerifyOTPRequest):
@@ -213,37 +114,6 @@ async def verify_otp(request: VerifyOTPRequest):
     
     token = create_access_token({"user_id": str(user["_id"])})
     return {"success": True, "message": "OTP verified", "token": token}
-
-@router.get("/v1/auth")
-async def validate_auth(request: Request):
-    """Validate JWT token and return user info"""
-    try:
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Missing or invalid token")
-        
-        token = auth_header.split(" ")[1]
-        payload = jwt.decode(token, os.getenv("JWT_SECRET"), algorithms=["HS256"])
-        
-        user_id = payload.get("user_id")
-        user = db.users.find_one({"_id": ObjectId(user_id)})
-        
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        return {
-            "success": True,
-            "user_id": str(user["_id"]),
-            "email": user.get("email"),
-            "institute_name": user.get("institute_name", "")
-        }
-    
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/v1/upload")
