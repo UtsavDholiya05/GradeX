@@ -112,6 +112,11 @@ def send_email(to_email, subject, body):
 async def root():
     return {"message": "Welcome to Gradex Backend!"}
 
+@router.get("/auth")
+async def auth_redirect():
+    """Redirect /auth to /v1/auth for backward compatibility"""
+    return {"message": "Use /v1/auth endpoint instead"}
+
 
 @router.post("/v1/send-otp")
 async def send_otp(request: SendOTPRequest):

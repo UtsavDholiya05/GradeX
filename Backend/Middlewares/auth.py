@@ -6,11 +6,13 @@ import os
 
 PUBLIC_PATHS = [
     "/",
+    "/auth",
     "/docs",
     "/openapi.json",
     "/redoc",
     "/v1/send-otp",
     "/v1/verify-otp",
+    "/v1/auth",
     "/favicon.ico",
 ]
 
