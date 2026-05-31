@@ -13,8 +13,13 @@ app = FastAPI()
 allowed_origins = [
     "http://localhost:5173",
     "http://localhost:3000",
-    "https://*.vercel.app",  # Any Vercel deployment
+    "https://grade-x-utsav.vercel.app",
 ]
+
+# Add Vercel deployment URL if provided
+vercel_url = os.getenv("VERCEL_URL")
+if vercel_url:
+    allowed_origins.append(f"https://{vercel_url}")
 
 # Add Render domain if provided via environment variable
 render_domain = os.getenv("RENDER_DOMAIN")
