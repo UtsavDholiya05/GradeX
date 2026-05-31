@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: gradex-backend
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r Backend/requirements.txt
+    startCommand: cd Backend && uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: BREVO_API
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: USER
+        sync: false
+      - key: PASS
+        sync: false
+
+  - type: web
+    name: gradex-frontend
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: cd Frontend && npm install && npm run build
+    startCommand: cd Frontend && npm run preview
+    envVars:
+      - key: VITE_BACKEND_URL
+        value: https://gradex-npg5.onrender.com
