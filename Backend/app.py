@@ -32,6 +32,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
     max_age=3600,
+    expose_headers=["*"],
 )
 
 # Add JWT authentication middleware AFTER CORS
@@ -41,5 +42,10 @@ app.add_middleware(JWTMiddleware)
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "message": "Backend is running"}
+
+# Catch-all OPTIONS handler for CORS preflight
+@app.options("/{full_path:path}")
+async def preflight_handler(full_path: str):
+    return {"message": "OK"}
 
 app.include_router(upload_router)
