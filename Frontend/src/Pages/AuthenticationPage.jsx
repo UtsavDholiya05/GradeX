@@ -34,12 +34,16 @@ export default function AuthenticationPage() {
     setError("");
 
     try {
-      await axios.post('/v1/send-otp', { email });
-      setIsOtpSent(true);
-      setIsCooldown(true);
-      setTimer(60);
+      const response = await axios.post('/v1/send-otp', { email });
+      if (response.data.success) {
+        setIsOtpSent(true);
+        setIsCooldown(true);
+        setTimer(60);
+      }
     } catch (error) {
-      setError("Failed to send OTP. Please try again.");
+      const errorMessage = error.response?.data?.detail || error.message || "Failed to send OTP. Please try again.";
+      setError(errorMessage);
+      console.error("OTP Send Error:", error);
     }
     setIsLoading(false);
   };
@@ -51,11 +55,17 @@ export default function AuthenticationPage() {
 
     try {
       const response = await axios.post("/v1/verify-otp", { email, otp });
-      localStorage.setItem("institute-auth", response.data.token);
-      localStorage.setItem("email", email);
-      navigate("/app");
+      if (response.data.success && response.data.token) {
+        localStorage.setItem("institute-auth", response.data.token);
+        localStorage.setItem("email", email);
+        navigate("/app");
+      } else {
+        setError("Authentication failed. Please try again.");
+      }
     } catch (error) {
-      setError("Invalid OTP. Please try again.");
+      const errorMessage = error.response?.data?.detail || error.message || "Invalid OTP. Please try again.";
+      setError(errorMessage);
+      console.error("OTP Verify Error:", error);
     }
     setIsLoading(false);
   };

@@ -77,6 +77,9 @@ def create_access_token(data: dict):
 
 def send_email(to_email, subject, body):
     try:
+        if not SMTP_USER or not SMTP_PASSWORD:
+            raise HTTPException(status_code=500, detail="Email configuration missing")
+        
         msg = MIMEText(body)
         msg["Subject"] = subject
         msg["From"] = SMTP_USER
@@ -86,10 +89,11 @@ def send_email(to_email, subject, body):
             server.starttls()
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.sendmail(SMTP_USER, [to_email], msg.as_string())
+        
+        return True
     except Exception as e:
         print(f"Email send error: {e}")
-        # Don't raise exception, just log it - email failures shouldn't block auth
-        pass
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 
 
 @router.api_route("/", methods=["GET", "HEAD"])
@@ -99,35 +103,48 @@ async def root():
 
 @router.post("/v1/send-otp")
 async def send_otp(request: SendOTPRequest):
-    otp = f"{random.randint(100000, 999999)}"
-    expires = datetime.datetime.now() + datetime.timedelta(minutes=5)
-    
-    db.users.update_one(
-        {"email": request.email},
-        {"$set": {"email": request.email, "otp": otp, "otpExpires": expires}, "$setOnInsert": {"paperHistory": []}},
-        upsert=True,
-    )
-    
-    send_email(request.email, "Your OTP for Gradex", f"Your OTP is {otp}. It is valid for 5 minutes.")
-    return {"success": True, "message": "OTP sent."}
+    try:
+        otp = f"{random.randint(100000, 999999)}"
+        expires = datetime.datetime.now() + datetime.timedelta(minutes=5)
+        
+        db.users.update_one(
+            {"email": request.email},
+            {"$set": {"email": request.email, "otp": otp, "otpExpires": expires}, "$setOnInsert": {"paperHistory": []}},
+            upsert=True,
+        )
+        
+        # Send email and handle any errors
+        send_email(request.email, "Your OTP for Gradex", f"Your OTP is {otp}. It is valid for 5 minutes.")
+        return {"success": True, "message": "OTP sent to your email."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Send OTP error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send OTP: {str(e)}")
 
 
 @router.post("/v1/verify-otp")
 async def verify_otp(request: VerifyOTPRequest):
-    user = db.users.find_one({"email": request.email})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    if user["otp"] != request.otp:
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-    
-    if datetime.datetime.now() > user["otpExpires"]:
-        raise HTTPException(status_code=400, detail="OTP expired")
+    try:
+        user = db.users.find_one({"email": request.email})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        if user["otp"] != request.otp:
+            raise HTTPException(status_code=400, detail="Invalid OTP")
+        
+        if datetime.datetime.now() > user["otpExpires"]:
+            raise HTTPException(status_code=400, detail="OTP expired")
 
-    db.users.update_one({"email": request.email}, {"$set": {"otp": "", "otpExpires": ""}})
-    
-    token = create_access_token({"user_id": str(user["_id"])})
-    return {"success": True, "message": "OTP verified", "token": token}
+        db.users.update_one({"email": request.email}, {"$set": {"otp": "", "otpExpires": ""}})
+        
+        token = create_access_token({"user_id": str(user["_id"])})
+        return {"success": True, "message": "OTP verified", "token": token}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Verify OTP error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to verify OTP: {str(e)}")
 
 
 @router.post("/v1/upload")

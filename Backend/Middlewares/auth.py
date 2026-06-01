@@ -4,7 +4,7 @@ from starlette.responses import JSONResponse
 import jwt
 import os
 
-PUBLIC_PATHS = ["/", "/v1/send-otp", "/v1/verify-otp", "/favicon.ico"]
+PUBLIC_PATHS = ["/", "/health", "/v1/send-otp", "/v1/verify-otp", "/favicon.ico"]
 
 class JWTMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):

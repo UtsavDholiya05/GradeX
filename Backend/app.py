@@ -16,9 +16,14 @@ allowed_origins = [
 ]
 
 # Add Vercel deployment domain if FRONTEND_URL is set
-frontend_url = os.getenv("FRONTEND_URL")
+frontend_url = os.getenv("FRONTEND_URL", "").strip()
 if frontend_url:
+    # Remove trailing slash if present
+    frontend_url = frontend_url.rstrip("/")
     allowed_origins.append(frontend_url)
+    print(f"CORS enabled for: {frontend_url}")
+
+print(f"All allowed origins: {allowed_origins}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,5 +35,10 @@ app.add_middleware(
 
 # Enable JWT authentication middleware
 app.add_middleware(JWTMiddleware)
+
+# Health check endpoint (no auth required)
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "message": "Backend is running"}
 
 app.include_router(upload_router)
