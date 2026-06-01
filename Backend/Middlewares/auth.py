@@ -1,6 +1,6 @@
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, PlainTextResponse
 import jwt
 import os
 
@@ -8,14 +8,18 @@ PUBLIC_PATHS = ["/", "/health", "/v1/send-otp", "/v1/verify-otp", "/favicon.ico"
 
 class JWTMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Allow all OPTIONS requests (CORS preflight) - must come first
+        # Handle OPTIONS requests immediately - return 200 with CORS headers
         if request.method == "OPTIONS":
-            response = await call_next(request)
-            response.headers["Access-Control-Allow-Origin"] = request.headers.get("origin", "*")
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-            response.headers["Access-Control-Max-Age"] = "3600"
-            return response
+            return PlainTextResponse(
+                "",
+                status_code=200,
+                headers={
+                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                    "Access-Control-Max-Age": "3600",
+                }
+            )
         
         path = request.url.path
 

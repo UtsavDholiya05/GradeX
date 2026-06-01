@@ -101,17 +101,6 @@ async def root():
     return {"message": "Welcome to Gradex Backend!"}
 
 
-# Handle OPTIONS requests explicitly
-@router.options("/v1/send-otp")
-async def send_otp_options():
-    return {"message": "OK"}
-
-
-@router.options("/v1/verify-otp")
-async def verify_otp_options():
-    return {"message": "OK"}
-
-
 @router.post("/v1/send-otp")
 async def send_otp(request: SendOTPRequest):
     try:

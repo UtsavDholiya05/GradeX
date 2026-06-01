@@ -43,9 +43,4 @@ app.add_middleware(JWTMiddleware)
 async def health_check():
     return {"status": "healthy", "message": "Backend is running"}
 
-# Catch-all OPTIONS handler for CORS preflight
-@app.options("/{full_path:path}")
-async def preflight_handler(full_path: str):
-    return {"message": "OK"}
-
 app.include_router(upload_router)
