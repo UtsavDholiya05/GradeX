@@ -9,27 +9,16 @@ load_dotenv()
 
 app = FastAPI()
 
-# CORS configuration for development and production
+# Configure CORS for both local development and production
 allowed_origins = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "https://grade-x-utsav.vercel.app",
+    "http://localhost:5173",  # Local Vite frontend
+    "http://localhost:3000",  # Alternative local port
 ]
 
-# Add Vercel deployment URL if provided
-vercel_url = os.getenv("VERCEL_URL")
-if vercel_url:
-    allowed_origins.append(f"https://{vercel_url}")
-
-# Add Render domain if provided via environment variable
-render_domain = os.getenv("RENDER_DOMAIN")
-if render_domain:
-    allowed_origins.append(render_domain)
-
-# Add custom domain if provided
-custom_frontend_domain = os.getenv("FRONTEND_DOMAIN")
-if custom_frontend_domain:
-    allowed_origins.append(custom_frontend_domain)
+# Add Vercel deployment domain if FRONTEND_URL is set
+frontend_url = os.getenv("FRONTEND_URL")
+if frontend_url:
+    allowed_origins.append(frontend_url)
 
 app.add_middleware(
     CORSMiddleware,
@@ -39,6 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Enable JWT authentication middleware
 app.add_middleware(JWTMiddleware)
 
 app.include_router(upload_router)

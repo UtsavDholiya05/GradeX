@@ -23,6 +23,7 @@ db = get_database()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
@@ -68,14 +69,27 @@ class VerifyOTPRequest(BaseModel):
 
 
 def create_access_token(data: dict):
-    pass
+    to_encode = data.copy()
+    to_encode["exp"] = datetime.datetime.utcnow() + datetime.timedelta(days=30)
+    encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
+    return encoded_jwt
 
 
 def send_email(to_email, subject, body):
     try:
-        pass
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = SMTP_USER
+        msg["To"] = to_email
+        
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(SMTP_USER, [to_email], msg.as_string())
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
+        print(f"Email send error: {e}")
+        # Don't raise exception, just log it - email failures shouldn't block auth
+        pass
 
 
 @router.api_route("/", methods=["GET", "HEAD"])
