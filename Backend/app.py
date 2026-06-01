@@ -9,16 +9,16 @@ load_dotenv()
 
 app = FastAPI()
 
-# Configure CORS for both local development and production
+# Configure CORS FIRST (before any other middleware)
 allowed_origins = [
-    "http://localhost:5173",  # Local Vite frontend
-    "http://localhost:3000",  # Alternative local port
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://grade-x-utsav.vercel.app",  # Add Vercel domain directly
 ]
 
-# Add Vercel deployment domain if FRONTEND_URL is set
+# Add from environment if set
 frontend_url = os.getenv("FRONTEND_URL", "").strip()
-if frontend_url:
-    # Remove trailing slash if present
+if frontend_url and frontend_url not in allowed_origins:
     frontend_url = frontend_url.rstrip("/")
     allowed_origins.append(frontend_url)
     print(f"CORS enabled for: {frontend_url}")
@@ -31,9 +31,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    max_age=3600,
 )
 
-# Enable JWT authentication middleware
+# Add JWT authentication middleware AFTER CORS
 app.add_middleware(JWTMiddleware)
 
 # Health check endpoint (no auth required)
