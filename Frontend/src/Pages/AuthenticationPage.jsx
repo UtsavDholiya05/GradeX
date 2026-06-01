@@ -37,7 +37,7 @@ export default function AuthenticationPage() {
       console.log("Sending OTP request to:", axios.defaults.baseURL + '/v1/send-otp');
       
       const response = await axios.post('/v1/send-otp', { email }, {
-        timeout: 60000 // 60 second timeout
+        timeout: 90000 // 90 second timeout (Render takes 50+ seconds to wake up)
       });
       
       console.log("OTP Response:", response.data);
@@ -77,7 +77,7 @@ export default function AuthenticationPage() {
       console.log("Sending OTP verification request...");
       
       const response = await axios.post("/v1/verify-otp", { email, otp }, {
-        timeout: 60000 // 60 second timeout
+        timeout: 90000 // 90 second timeout
       });
       
       console.log("OTP Verify Response:", response.data);
@@ -114,7 +114,7 @@ export default function AuthenticationPage() {
 
     try {
       const response = await axios.post('/v1/send-otp', { email }, {
-        timeout: 60000 // 60 second timeout
+        timeout: 90000 // 90 second timeout
       });
       
       if (response.data.success) {

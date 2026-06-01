@@ -85,8 +85,9 @@ def send_email(to_email, subject, body):
         msg["From"] = SMTP_USER
         msg["To"] = to_email
         
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
+        # Add timeout to SMTP connection (10 seconds)
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=10) as server:
+            server.starttls(timeout=10)
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.sendmail(SMTP_USER, [to_email], msg.as_string())
         
