@@ -119,11 +119,13 @@ export default function AuthenticationPage() {
       
       if (response.data.success) {
         setIsCooldown(true);
-      setTimer(150);
+        setTimer(60);
+      }
     } catch (error) {
       setError("Failed to resend OTP. Please try again.");
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const containerVariants = {
