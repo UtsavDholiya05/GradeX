@@ -85,16 +85,24 @@ def send_email(to_email, subject, body):
         msg["From"] = SMTP_USER
         msg["To"] = to_email
         
-        # Add timeout to SMTP connection (10 seconds)
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=10) as server:
-            server.starttls(timeout=10)
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_USER, [to_email], msg.as_string())
-        
-        return True
+        # PRO FIX: Use Port 465 (SSL) instead of 587 (STARTTLS)
+        # Cloud providers like Render often block port 587 to prevent spam
+        try:
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.sendmail(SMTP_USER, [to_email], msg.as_string())
+            return True
+        except Exception as ssl_err:
+            print(f"SSL attempt failed, trying STARTTLS: {ssl_err}")
+            with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
+                server.starttls()
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.sendmail(SMTP_USER, [to_email], msg.as_string())
+            return True
+            
     except Exception as e:
         print(f"Email send error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Email Error: {str(e)}")
 
 
 @router.api_route("/", methods=["GET", "HEAD"])
