@@ -11,6 +11,12 @@ import re
 import google.generativeai as genai
 from groq import Groq
 import jwt
+try:
+    import requests
+except Exception:
+    requests = None
+    import urllib.request as _urllib_request
+    import json as _json
 from pydantic import BaseModel
 import smtplib
 from email.mime.text import MIMEText
@@ -79,27 +85,72 @@ def send_email(to_email, subject, body):
     try:
         if not SMTP_USER or not SMTP_PASSWORD:
             raise HTTPException(status_code=500, detail="Email configuration missing")
-        
+
         msg = MIMEText(body)
         msg["Subject"] = subject
         msg["From"] = SMTP_USER
         msg["To"] = to_email
-        
-        # PRO FIX: Use Port 465 (SSL) instead of 587 (STARTTLS)
-        # Cloud providers like Render often block port 587 to prevent spam
+
+        # Try SMTP over SSL (port 465)
         try:
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
                 server.login(SMTP_USER, SMTP_PASSWORD)
                 server.sendmail(SMTP_USER, [to_email], msg.as_string())
             return True
         except Exception as ssl_err:
-            print(f"SSL attempt failed, trying STARTTLS: {ssl_err}")
-            with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
-                server.starttls()
-                server.login(SMTP_USER, SMTP_PASSWORD)
-                server.sendmail(SMTP_USER, [to_email], msg.as_string())
-            return True
-            
+            print(f"SMTP SSL failed: {ssl_err}")
+            # Try STARTTLS (port 587)
+            try:
+                with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
+                    server.starttls()
+                    server.login(SMTP_USER, SMTP_PASSWORD)
+                    server.sendmail(SMTP_USER, [to_email], msg.as_string())
+                return True
+            except Exception as starttls_err:
+                print(f"STARTTLS failed: {starttls_err}")
+
+                # Fallback to SendGrid API if configured
+                SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+                if SENDGRID_API_KEY:
+                    try:
+                        sg_url = "https://api.sendgrid.com/v3/mail/send"
+                        payload = {
+                            "personalizations": [{"to": [{"email": to_email}]}],
+                            "from": {"email": SMTP_USER},
+                            "subject": subject,
+                            "content": [{"type": "text/plain", "value": body}]
+                        }
+                        headers = {
+                            "Authorization": f"Bearer {SENDGRID_API_KEY}",
+                            "Content-Type": "application/json"
+                        }
+                        if requests:
+                            resp = requests.post(sg_url, json=payload, headers=headers, timeout=15)
+                            if resp.status_code in (200, 202):
+                                return True
+                            else:
+                                print(f"SendGrid failed: {resp.status_code} {resp.text}")
+                                raise HTTPException(status_code=500, detail=f"SendGrid error: {resp.status_code}")
+                        else:
+                            # use urllib fallback
+                            data = _json.dumps(payload).encode("utf-8")
+                            req = _urllib_request.Request(sg_url, data=data, headers=headers, method="POST")
+                            try:
+                                with _urllib_request.urlopen(req, timeout=15) as res:
+                                    if res.status in (200, 202):
+                                        return True
+                                    else:
+                                        body = res.read().decode()
+                                        print(f"SendGrid urllib failed: {res.status} {body}")
+                                        raise HTTPException(status_code=500, detail=f"SendGrid error: {res.status}")
+                            except Exception as e:
+                                print(f"SendGrid urllib exception: {e}")
+                                raise
+                    except Exception as sg_err:
+                        print(f"SendGrid attempt failed: {sg_err}")
+                        raise HTTPException(status_code=500, detail=f"Email Error after fallbacks: {sg_err}")
+                else:
+                    raise HTTPException(status_code=500, detail=f"Email send failed: {starttls_err}")
     except Exception as e:
         print(f"Email send error: {e}")
         raise HTTPException(status_code=500, detail=f"Email Error: {str(e)}")
