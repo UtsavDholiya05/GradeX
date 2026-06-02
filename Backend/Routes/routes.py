@@ -83,19 +83,62 @@ def create_access_token(data: dict):
 
 def send_email(to_email, subject, body):
     errors = []
-    # Try Brevo HTTP API first if BREVO_API key is set (bypasses SMTP port blocks on cloud hosts like Render)
+    sender_email = SMTP_USER or os.getenv("USER") or "utsavstudy04@gmail.com"
+    
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = sender_email
+    msg["To"] = to_email
+
+    # Try Brevo first if BREVO_API key is set
     BREVO_API = os.getenv("BREVO_API")
     if BREVO_API:
         if BREVO_API.startswith("xsmtpsib-"):
-            msg = ("Invalid BREVO_API key format: You have provided an SMTP key (starts with 'xsmtpsib-') "
-                   "instead of a v3 API Key (starts with 'xkeysib-'). Please generate a v3 API key in your "
-                   "Brevo dashboard under 'SMTP & API' -> 'API Keys'.")
-            print(msg)
-            errors.append(msg)
+            print("Detected Brevo SMTP key (xsmtpsib-). Trying Brevo SMTP relay...")
+            # 1. Try port 2525 (highly recommended for cloud hosts like Render as it's almost always open)
+            try:
+                print("Trying Brevo SMTP relay on port 2525...")
+                with smtplib.SMTP("smtp-relay.brevo.com", 2525, timeout=15) as server:
+                    server.starttls()
+                    server.login(sender_email, BREVO_API)
+                    server.sendmail(sender_email, [to_email], msg.as_string())
+                print("Email successfully sent via Brevo SMTP relay (port 2525)")
+                return True
+            except Exception as e2525:
+                err = f"Brevo SMTP relay on port 2525 failed: {e2525}"
+                print(err)
+                errors.append(err)
+                
+            # 2. Try port 587
+            try:
+                print("Trying Brevo SMTP relay on port 587...")
+                with smtplib.SMTP("smtp-relay.brevo.com", 587, timeout=15) as server:
+                    server.starttls()
+                    server.login(sender_email, BREVO_API)
+                    server.sendmail(sender_email, [to_email], msg.as_string())
+                print("Email successfully sent via Brevo SMTP relay (port 587)")
+                return True
+            except Exception as e587:
+                err = f"Brevo SMTP relay on port 587 failed: {e587}"
+                print(err)
+                errors.append(err)
+                
+            # 3. Try port 465 (SSL)
+            try:
+                print("Trying Brevo SMTP relay on port 465...")
+                with smtplib.SMTP_SSL("smtp-relay.brevo.com", 465, timeout=15) as server:
+                    server.login(sender_email, BREVO_API)
+                    server.sendmail(sender_email, [to_email], msg.as_string())
+                print("Email successfully sent via Brevo SMTP relay (port 465)")
+                return True
+            except Exception as e465:
+                err = f"Brevo SMTP relay on port 465 failed: {e465}"
+                print(err)
+                errors.append(err)
         else:
+            # Try Brevo HTTP API (starts with xkeysib-)
             try:
                 url = "https://api.brevo.com/v3/smtp/email"
-                sender_email = SMTP_USER or os.getenv("USER") or "utsavstudy04@gmail.com"
                 payload = {
                     "sender": {
                         "name": "Gradex",
@@ -119,7 +162,7 @@ def send_email(to_email, subject, body):
                         print("Email successfully sent via Brevo API")
                         return True
                     else:
-                        err = f"Brevo API error: {resp.status_code} {resp.text}"
+                        err = f"Brevo API HTTP error: {resp.status_code} {resp.text}"
                         print(err)
                         errors.append(err)
                 else:
@@ -131,7 +174,7 @@ def send_email(to_email, subject, body):
                                 print("Email successfully sent via Brevo API (urllib)")
                                 return True
                             else:
-                                err = f"Brevo API urllib error: status code {res.status}"
+                                err = f"Brevo API urllib HTTP error: status code {res.status}"
                                 print(err)
                                 errors.append(err)
                     except Exception as urllib_err:
@@ -145,7 +188,7 @@ def send_email(to_email, subject, body):
                         print(err)
                         errors.append(err)
             except Exception as brevo_err:
-                err = f"Brevo API attempt failed with exception: {brevo_err}"
+                err = f"Brevo API HTTP attempt failed with exception: {brevo_err}"
                 print(err)
                 errors.append(err)
 
@@ -155,11 +198,6 @@ def send_email(to_email, subject, body):
                 raise HTTPException(status_code=500, detail=f"Email Configuration Error. Attempts failed:\n" + "\n".join(errors))
             raise HTTPException(status_code=500, detail="Email configuration missing")
 
-        msg = MIMEText(body)
-        msg["Subject"] = subject
-        msg["From"] = SMTP_USER
-        msg["To"] = to_email
-
         # Try SMTP over SSL (port 465)
         try:
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
@@ -167,7 +205,7 @@ def send_email(to_email, subject, body):
                 server.sendmail(SMTP_USER, [to_email], msg.as_string())
             return True
         except Exception as ssl_err:
-            err = f"SMTP SSL failed: {ssl_err}"
+            err = f"Gmail SMTP SSL failed: {ssl_err}"
             print(err)
             errors.append(err)
             
@@ -179,7 +217,7 @@ def send_email(to_email, subject, body):
                     server.sendmail(SMTP_USER, [to_email], msg.as_string())
                 return True
             except Exception as starttls_err:
-                err = f"STARTTLS failed: {starttls_err}"
+                err = f"Gmail SMTP STARTTLS failed: {starttls_err}"
                 print(err)
                 errors.append(err)
 
