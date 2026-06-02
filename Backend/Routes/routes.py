@@ -83,6 +83,50 @@ def create_access_token(data: dict):
 
 def send_email(to_email, subject, body):
     try:
+        # Try Brevo HTTP API first if BREVO_API key is set (bypasses SMTP port blocks on cloud hosts like Render)
+        BREVO_API = os.getenv("BREVO_API")
+        if BREVO_API:
+            try:
+                url = "https://api.brevo.com/v3/smtp/email"
+                sender_email = SMTP_USER or os.getenv("USER") or "utsavstudy04@gmail.com"
+                payload = {
+                    "sender": {
+                        "name": "Gradex",
+                        "email": sender_email
+                    },
+                    "to": [
+                        {
+                            "email": to_email
+                        }
+                    ],
+                    "subject": subject,
+                    "htmlContent": f"<html><body><p>{body.replace(chr(10), '<br>')}</p></body></html>"
+                }
+                headers = {
+                    "accept": "application/json",
+                    "api-key": BREVO_API,
+                    "content-type": "application/json"
+                }
+                print(f"Attempting to send email to {to_email} via Brevo HTTP API...")
+                if requests:
+                    resp = requests.post(url, json=payload, headers=headers, timeout=15)
+                    if resp.status_code in (200, 201, 202):
+                        print("Email successfully sent via Brevo API")
+                        return True
+                    else:
+                        print(f"Brevo API error response: {resp.status_code} {resp.text}")
+                else:
+                    data = _json.dumps(payload).encode("utf-8")
+                    req = _urllib_request.Request(url, data=data, headers=headers, method="POST")
+                    with _urllib_request.urlopen(req, timeout=15) as res:
+                        if res.status in (200, 201, 202):
+                            print("Email successfully sent via Brevo API (urllib)")
+                            return True
+                        else:
+                            print(f"Brevo API urllib error response: {res.status}")
+            except Exception as brevo_err:
+                print(f"Brevo API attempt failed with exception: {brevo_err}")
+
         if not SMTP_USER or not SMTP_PASSWORD:
             raise HTTPException(status_code=500, detail="Email configuration missing")
 
