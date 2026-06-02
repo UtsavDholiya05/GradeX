@@ -33,8 +33,13 @@ JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SMTP_USER = os.getenv("USER")
+SMTP_USER = os.getenv("EMAIL_USER") or os.getenv("USER")
 SMTP_PASSWORD = os.getenv("PASS")
+
+# Debug: print resolved email config at startup (helps diagnose Render env issues)
+print(f"[Config] SMTP_USER resolved to: {SMTP_USER}")
+print(f"[Config] BREVO_API set: {bool(os.getenv('BREVO_API'))}")
+print(f"[Config] BREVO_LOGIN set: {bool(os.getenv('BREVO_LOGIN'))}")
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 genai.configure(api_key=GEMINI_API_KEY)
@@ -82,200 +87,143 @@ def create_access_token(data: dict):
 
 
 def send_email(to_email, subject, body):
+    """Try multiple email providers. HTTP APIs first (work on cloud), SMTP last (local dev)."""
     errors = []
-    sender_email = SMTP_USER or os.getenv("USER") or "utsavstudy04@gmail.com"
-    
-    msg = MIMEText(body)
-    msg["Subject"] = subject
-    msg["From"] = sender_email
-    msg["To"] = to_email
+    sender_email = SMTP_USER if SMTP_USER and "@" in SMTP_USER else "utsavstudy04@gmail.com"
+    print(f"[Email] Sending to: {to_email}, sender: {sender_email}")
 
-    # Try Brevo first if BREVO_API key is set
+    # === 1. Brevo SMTP Relay on port 2525 (best for Render - port is open) ===
     BREVO_API = os.getenv("BREVO_API")
-    if BREVO_API:
-        if BREVO_API.startswith("xsmtpsib-"):
-            print("Detected Brevo SMTP key (xsmtpsib-). Trying Brevo SMTP relay...")
-            # 1. Try port 2525 (highly recommended for cloud hosts like Render as it's almost always open)
-            try:
-                print("Trying Brevo SMTP relay on port 2525...")
-                with smtplib.SMTP("smtp-relay.brevo.com", 2525, timeout=15) as server:
-                    server.starttls()
-                    server.login(sender_email, BREVO_API)
-                    server.sendmail(sender_email, [to_email], msg.as_string())
-                print("Email successfully sent via Brevo SMTP relay (port 2525)")
-                return True
-            except Exception as e2525:
-                err = f"Brevo SMTP relay on port 2525 failed: {e2525}"
-                print(err)
-                errors.append(err)
-                
-            # 2. Try port 587
-            try:
-                print("Trying Brevo SMTP relay on port 587...")
-                with smtplib.SMTP("smtp-relay.brevo.com", 587, timeout=15) as server:
-                    server.starttls()
-                    server.login(sender_email, BREVO_API)
-                    server.sendmail(sender_email, [to_email], msg.as_string())
-                print("Email successfully sent via Brevo SMTP relay (port 587)")
-                return True
-            except Exception as e587:
-                err = f"Brevo SMTP relay on port 587 failed: {e587}"
-                print(err)
-                errors.append(err)
-                
-            # 3. Try port 465 (SSL)
-            try:
-                print("Trying Brevo SMTP relay on port 465...")
-                with smtplib.SMTP_SSL("smtp-relay.brevo.com", 465, timeout=15) as server:
-                    server.login(sender_email, BREVO_API)
-                    server.sendmail(sender_email, [to_email], msg.as_string())
-                print("Email successfully sent via Brevo SMTP relay (port 465)")
-                return True
-            except Exception as e465:
-                err = f"Brevo SMTP relay on port 465 failed: {e465}"
-                print(err)
-                errors.append(err)
-        else:
-            # Try Brevo HTTP API (starts with xkeysib-)
-            try:
-                url = "https://api.brevo.com/v3/smtp/email"
-                payload = {
-                    "sender": {
-                        "name": "Gradex",
-                        "email": sender_email
-                    },
-                    "to": [
-                        {"email": to_email}
-                    ],
-                    "subject": subject,
-                    "htmlContent": f"<html><body><p>{body.replace(chr(10), '<br>')}</p></body></html>"
-                }
-                headers = {
-                    "accept": "application/json",
-                    "api-key": BREVO_API,
-                    "content-type": "application/json"
-                }
-                print(f"Attempting to send email to {to_email} via Brevo HTTP API...")
-                if requests:
-                    resp = requests.post(url, json=payload, headers=headers, timeout=15)
-                    if resp.status_code in (200, 201, 202):
-                        print("Email successfully sent via Brevo API")
+    if BREVO_API and BREVO_API.startswith("xsmtpsib-"):
+        brevo_login = os.getenv("BREVO_LOGIN") or os.getenv("EMAIL_USER") or sender_email
+        print(f"[Email] Trying Brevo SMTP relay (port 2525), login: {brevo_login}")
+        try:
+            msg = MIMEText(body)
+            msg["Subject"] = subject
+            msg["From"] = sender_email
+            msg["To"] = to_email
+            with smtplib.SMTP("smtp-relay.brevo.com", 2525, timeout=15) as server:
+                server.starttls()
+                server.login(brevo_login, BREVO_API)
+                server.sendmail(sender_email, [to_email], msg.as_string())
+            print("[Email] SUCCESS via Brevo SMTP relay (port 2525)")
+            return True
+        except Exception as e:
+            err = f"Brevo SMTP relay (2525) failed: {e}"
+            print(f"[Email] {err}")
+            errors.append(err)
+
+    # === 2. Brevo HTTP API (if xkeysib- key) ===
+    if BREVO_API and not BREVO_API.startswith("xsmtpsib-"):
+        print("[Email] Trying Brevo HTTP API...")
+        try:
+            url = "https://api.brevo.com/v3/smtp/email"
+            payload = {
+                "sender": {"name": "Gradex", "email": sender_email},
+                "to": [{"email": to_email}],
+                "subject": subject,
+                "htmlContent": f"<html><body><p>{body.replace(chr(10), '<br>')}</p></body></html>"
+            }
+            headers = {
+                "accept": "application/json",
+                "api-key": BREVO_API,
+                "content-type": "application/json"
+            }
+            if requests:
+                resp = requests.post(url, json=payload, headers=headers, timeout=15)
+                if resp.status_code in (200, 201, 202):
+                    print("[Email] SUCCESS via Brevo HTTP API")
+                    return True
+                else:
+                    err = f"Brevo HTTP API error: {resp.status_code} {resp.text}"
+                    print(f"[Email] {err}")
+                    errors.append(err)
+            else:
+                data = _json.dumps(payload).encode("utf-8")
+                req = _urllib_request.Request(url, data=data, headers=headers, method="POST")
+                with _urllib_request.urlopen(req, timeout=15) as res:
+                    if res.status in (200, 201, 202):
+                        print("[Email] SUCCESS via Brevo HTTP API (urllib)")
                         return True
                     else:
-                        err = f"Brevo API HTTP error: {resp.status_code} {resp.text}"
-                        print(err)
+                        err = f"Brevo HTTP API urllib error: {res.status}"
+                        print(f"[Email] {err}")
                         errors.append(err)
-                else:
-                    data = _json.dumps(payload).encode("utf-8")
-                    req = _urllib_request.Request(url, data=data, headers=headers, method="POST")
-                    try:
-                        with _urllib_request.urlopen(req, timeout=15) as res:
-                            if res.status in (200, 201, 202):
-                                print("Email successfully sent via Brevo API (urllib)")
-                                return True
-                            else:
-                                err = f"Brevo API urllib HTTP error: status code {res.status}"
-                                print(err)
-                                errors.append(err)
-                    except Exception as urllib_err:
-                        err_content = ""
-                        if hasattr(urllib_err, 'read'):
-                            try:
-                                err_content = f" - {urllib_err.read().decode('utf-8')}"
-                            except Exception:
-                                pass
-                        err = f"Brevo API urllib connection failed: {urllib_err}{err_content}"
-                        print(err)
-                        errors.append(err)
-            except Exception as brevo_err:
-                err = f"Brevo API HTTP attempt failed with exception: {brevo_err}"
-                print(err)
-                errors.append(err)
-
-    try:
-        if not SMTP_USER or not SMTP_PASSWORD:
-            if errors:
-                raise HTTPException(status_code=500, detail=f"Email Configuration Error. Attempts failed:\n" + "\n".join(errors))
-            raise HTTPException(status_code=500, detail="Email configuration missing")
-
-        # Try SMTP over SSL (port 465)
-        try:
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
-                server.login(SMTP_USER, SMTP_PASSWORD)
-                server.sendmail(SMTP_USER, [to_email], msg.as_string())
-            return True
-        except Exception as ssl_err:
-            err = f"Gmail SMTP SSL failed: {ssl_err}"
-            print(err)
+        except Exception as e:
+            err = f"Brevo HTTP API failed: {e}"
+            print(f"[Email] {err}")
             errors.append(err)
-            
-            # Try STARTTLS (port 587)
+
+    # === 3. SendGrid HTTP API (if SENDGRID_API_KEY set) ===
+    SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
+    if SENDGRID_API_KEY:
+        print("[Email] Trying SendGrid HTTP API...")
+        try:
+            sg_url = "https://api.sendgrid.com/v3/mail/send"
+            payload = {
+                "personalizations": [{"to": [{"email": to_email}]}],
+                "from": {"email": sender_email},
+                "subject": subject,
+                "content": [{"type": "text/plain", "value": body}]
+            }
+            headers = {
+                "Authorization": f"Bearer {SENDGRID_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            if requests:
+                resp = requests.post(sg_url, json=payload, headers=headers, timeout=15)
+                if resp.status_code in (200, 202):
+                    print("[Email] SUCCESS via SendGrid HTTP API")
+                    return True
+                else:
+                    err = f"SendGrid error: {resp.status_code} {resp.text}"
+                    print(f"[Email] {err}")
+                    errors.append(err)
+            else:
+                data = _json.dumps(payload).encode("utf-8")
+                req = _urllib_request.Request(sg_url, data=data, headers=headers, method="POST")
+                with _urllib_request.urlopen(req, timeout=15) as res:
+                    if res.status in (200, 202):
+                        print("[Email] SUCCESS via SendGrid HTTP API (urllib)")
+                        return True
+                    else:
+                        err = f"SendGrid urllib error: {res.status}"
+                        print(f"[Email] {err}")
+                        errors.append(err)
+        except Exception as e:
+            err = f"SendGrid failed: {e}"
+            print(f"[Email] {err}")
+            errors.append(err)
+
+    # === 4. Gmail SMTP (only works locally - blocked on cloud hosts) ===
+    if SMTP_USER and SMTP_PASSWORD and "@" in SMTP_USER:
+        print("[Email] Trying Gmail SMTP...")
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = SMTP_USER
+        msg["To"] = to_email
+        for port, method in [(465, "SSL"), (587, "STARTTLS")]:
             try:
-                with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
-                    server.starttls()
-                    server.login(SMTP_USER, SMTP_PASSWORD)
-                    server.sendmail(SMTP_USER, [to_email], msg.as_string())
+                if method == "SSL":
+                    with smtplib.SMTP_SSL("smtp.gmail.com", port, timeout=10) as server:
+                        server.login(SMTP_USER, SMTP_PASSWORD)
+                        server.sendmail(SMTP_USER, [to_email], msg.as_string())
+                else:
+                    with smtplib.SMTP("smtp.gmail.com", port, timeout=10) as server:
+                        server.starttls()
+                        server.login(SMTP_USER, SMTP_PASSWORD)
+                        server.sendmail(SMTP_USER, [to_email], msg.as_string())
+                print(f"[Email] SUCCESS via Gmail SMTP ({method} port {port})")
                 return True
-            except Exception as starttls_err:
-                err = f"Gmail SMTP STARTTLS failed: {starttls_err}"
-                print(err)
+            except Exception as e:
+                err = f"Gmail SMTP {method} (port {port}) failed: {e}"
+                print(f"[Email] {err}")
                 errors.append(err)
 
-                # Fallback to SendGrid API if configured
-                SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
-                if SENDGRID_API_KEY:
-                    try:
-                        sg_url = "https://api.sendgrid.com/v3/mail/send"
-                        payload = {
-                            "personalizations": [{"to": [{"email": to_email}]}],
-                            "from": {"email": SMTP_USER},
-                            "subject": subject,
-                            "content": [{"type": "text/plain", "value": body}]
-                        }
-                        headers = {
-                            "Authorization": f"Bearer {SENDGRID_API_KEY}",
-                            "Content-Type": "application/json"
-                        }
-                        if requests:
-                            resp = requests.post(sg_url, json=payload, headers=headers, timeout=15)
-                            if resp.status_code in (200, 202):
-                                return True
-                            else:
-                                err = f"SendGrid failed: {resp.status_code} {resp.text}"
-                                print(err)
-                                errors.append(err)
-                                raise RuntimeError(err)
-                        else:
-                            # use urllib fallback
-                            data = _json.dumps(payload).encode("utf-8")
-                            req = _urllib_request.Request(sg_url, data=data, headers=headers, method="POST")
-                            try:
-                                with _urllib_request.urlopen(req, timeout=15) as res:
-                                    if res.status in (200, 202):
-                                        return True
-                                    else:
-                                        body_content = res.read().decode()
-                                        err = f"SendGrid urllib failed: {res.status} {body_content}"
-                                        print(err)
-                                        errors.append(err)
-                                        raise RuntimeError(err)
-                            except Exception as e:
-                                err = f"SendGrid urllib exception: {e}"
-                                print(err)
-                                errors.append(err)
-                                raise
-                    except Exception as sg_err:
-                        err = f"SendGrid attempt failed: {sg_err}"
-                        print(err)
-                        errors.append(err)
-                        raise HTTPException(status_code=500, detail=f"Email Error after fallbacks. Attempts:\n" + "\n".join(errors))
-                else:
-                    raise HTTPException(status_code=500, detail=f"Email send failed. Attempts:\n" + "\n".join(errors))
-    except Exception as e:
-        print(f"Email send error: {e}")
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(status_code=500, detail=f"Email Error: {str(e)}. Attempts:\n" + "\n".join(errors))
+    # === All methods failed ===
+    error_summary = "\n".join(errors) if errors else "No email provider configured"
+    print(f"[Email] ALL METHODS FAILED:\n{error_summary}")
+    raise HTTPException(status_code=500, detail=f"Email send failed. Attempts:\n{error_summary}")
 
 
 @router.api_route("/", methods=["GET", "HEAD"])
