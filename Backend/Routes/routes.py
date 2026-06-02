@@ -92,30 +92,10 @@ def send_email(to_email, subject, body):
     sender_email = SMTP_USER if SMTP_USER and "@" in SMTP_USER else "utsavstudy04@gmail.com"
     print(f"[Email] Sending to: {to_email}, sender: {sender_email}")
 
-    # === 1. Brevo SMTP Relay on port 2525 (best for Render - port is open) ===
+    # === 1. Brevo HTTP API (try with whatever BREVO_API key is set) ===
     BREVO_API = os.getenv("BREVO_API")
-    if BREVO_API and BREVO_API.startswith("xsmtpsib-"):
-        brevo_login = os.getenv("BREVO_LOGIN") or os.getenv("EMAIL_USER") or sender_email
-        print(f"[Email] Trying Brevo SMTP relay (port 2525), login: {brevo_login}")
-        try:
-            msg = MIMEText(body)
-            msg["Subject"] = subject
-            msg["From"] = sender_email
-            msg["To"] = to_email
-            with smtplib.SMTP("smtp-relay.brevo.com", 2525, timeout=15) as server:
-                server.starttls()
-                server.login(brevo_login, BREVO_API)
-                server.sendmail(sender_email, [to_email], msg.as_string())
-            print("[Email] SUCCESS via Brevo SMTP relay (port 2525)")
-            return True
-        except Exception as e:
-            err = f"Brevo SMTP relay (2525) failed: {e}"
-            print(f"[Email] {err}")
-            errors.append(err)
-
-    # === 2. Brevo HTTP API (if xkeysib- key) ===
-    if BREVO_API and not BREVO_API.startswith("xsmtpsib-"):
-        print("[Email] Trying Brevo HTTP API...")
+    if BREVO_API:
+        print(f"[Email] Trying Brevo HTTP API with key: {BREVO_API[:10]}...")
         try:
             url = "https://api.brevo.com/v3/smtp/email"
             payload = {
@@ -151,6 +131,26 @@ def send_email(to_email, subject, body):
                         errors.append(err)
         except Exception as e:
             err = f"Brevo HTTP API failed: {e}"
+            print(f"[Email] {err}")
+            errors.append(err)
+
+    # === 2. Brevo SMTP Relay on port 2525 (fallback if HTTP API failed) ===
+    if BREVO_API and BREVO_API.startswith("xsmtpsib-"):
+        brevo_login = os.getenv("BREVO_LOGIN") or os.getenv("EMAIL_USER") or sender_email
+        print(f"[Email] Trying Brevo SMTP relay (port 2525), login: {brevo_login}")
+        try:
+            msg = MIMEText(body)
+            msg["Subject"] = subject
+            msg["From"] = sender_email
+            msg["To"] = to_email
+            with smtplib.SMTP("smtp-relay.brevo.com", 2525, timeout=15) as server:
+                server.starttls()
+                server.login(brevo_login, BREVO_API)
+                server.sendmail(sender_email, [to_email], msg.as_string())
+            print("[Email] SUCCESS via Brevo SMTP relay (port 2525)")
+            return True
+        except Exception as e:
+            err = f"Brevo SMTP relay (2525) failed: {e}"
             print(f"[Email] {err}")
             errors.append(err)
 
