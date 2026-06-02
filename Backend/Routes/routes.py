@@ -82,10 +82,17 @@ def create_access_token(data: dict):
 
 
 def send_email(to_email, subject, body):
-    try:
-        # Try Brevo HTTP API first if BREVO_API key is set (bypasses SMTP port blocks on cloud hosts like Render)
-        BREVO_API = os.getenv("BREVO_API")
-        if BREVO_API:
+    errors = []
+    # Try Brevo HTTP API first if BREVO_API key is set (bypasses SMTP port blocks on cloud hosts like Render)
+    BREVO_API = os.getenv("BREVO_API")
+    if BREVO_API:
+        if BREVO_API.startswith("xsmtpsib-"):
+            msg = ("Invalid BREVO_API key format: You have provided an SMTP key (starts with 'xsmtpsib-') "
+                   "instead of a v3 API Key (starts with 'xkeysib-'). Please generate a v3 API key in your "
+                   "Brevo dashboard under 'SMTP & API' -> 'API Keys'.")
+            print(msg)
+            errors.append(msg)
+        else:
             try:
                 url = "https://api.brevo.com/v3/smtp/email"
                 sender_email = SMTP_USER or os.getenv("USER") or "utsavstudy04@gmail.com"
@@ -95,9 +102,7 @@ def send_email(to_email, subject, body):
                         "email": sender_email
                     },
                     "to": [
-                        {
-                            "email": to_email
-                        }
+                        {"email": to_email}
                     ],
                     "subject": subject,
                     "htmlContent": f"<html><body><p>{body.replace(chr(10), '<br>')}</p></body></html>"
@@ -114,20 +119,40 @@ def send_email(to_email, subject, body):
                         print("Email successfully sent via Brevo API")
                         return True
                     else:
-                        print(f"Brevo API error response: {resp.status_code} {resp.text}")
+                        err = f"Brevo API error: {resp.status_code} {resp.text}"
+                        print(err)
+                        errors.append(err)
                 else:
                     data = _json.dumps(payload).encode("utf-8")
                     req = _urllib_request.Request(url, data=data, headers=headers, method="POST")
-                    with _urllib_request.urlopen(req, timeout=15) as res:
-                        if res.status in (200, 201, 202):
-                            print("Email successfully sent via Brevo API (urllib)")
-                            return True
-                        else:
-                            print(f"Brevo API urllib error response: {res.status}")
+                    try:
+                        with _urllib_request.urlopen(req, timeout=15) as res:
+                            if res.status in (200, 201, 202):
+                                print("Email successfully sent via Brevo API (urllib)")
+                                return True
+                            else:
+                                err = f"Brevo API urllib error: status code {res.status}"
+                                print(err)
+                                errors.append(err)
+                    except Exception as urllib_err:
+                        err_content = ""
+                        if hasattr(urllib_err, 'read'):
+                            try:
+                                err_content = f" - {urllib_err.read().decode('utf-8')}"
+                            except Exception:
+                                pass
+                        err = f"Brevo API urllib connection failed: {urllib_err}{err_content}"
+                        print(err)
+                        errors.append(err)
             except Exception as brevo_err:
-                print(f"Brevo API attempt failed with exception: {brevo_err}")
+                err = f"Brevo API attempt failed with exception: {brevo_err}"
+                print(err)
+                errors.append(err)
 
+    try:
         if not SMTP_USER or not SMTP_PASSWORD:
+            if errors:
+                raise HTTPException(status_code=500, detail=f"Email Configuration Error. Attempts failed:\n" + "\n".join(errors))
             raise HTTPException(status_code=500, detail="Email configuration missing")
 
         msg = MIMEText(body)
@@ -142,7 +167,10 @@ def send_email(to_email, subject, body):
                 server.sendmail(SMTP_USER, [to_email], msg.as_string())
             return True
         except Exception as ssl_err:
-            print(f"SMTP SSL failed: {ssl_err}")
+            err = f"SMTP SSL failed: {ssl_err}"
+            print(err)
+            errors.append(err)
+            
             # Try STARTTLS (port 587)
             try:
                 with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
@@ -151,7 +179,9 @@ def send_email(to_email, subject, body):
                     server.sendmail(SMTP_USER, [to_email], msg.as_string())
                 return True
             except Exception as starttls_err:
-                print(f"STARTTLS failed: {starttls_err}")
+                err = f"STARTTLS failed: {starttls_err}"
+                print(err)
+                errors.append(err)
 
                 # Fallback to SendGrid API if configured
                 SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
@@ -173,8 +203,10 @@ def send_email(to_email, subject, body):
                             if resp.status_code in (200, 202):
                                 return True
                             else:
-                                print(f"SendGrid failed: {resp.status_code} {resp.text}")
-                                raise HTTPException(status_code=500, detail=f"SendGrid error: {resp.status_code}")
+                                err = f"SendGrid failed: {resp.status_code} {resp.text}"
+                                print(err)
+                                errors.append(err)
+                                raise RuntimeError(err)
                         else:
                             # use urllib fallback
                             data = _json.dumps(payload).encode("utf-8")
@@ -184,20 +216,28 @@ def send_email(to_email, subject, body):
                                     if res.status in (200, 202):
                                         return True
                                     else:
-                                        body = res.read().decode()
-                                        print(f"SendGrid urllib failed: {res.status} {body}")
-                                        raise HTTPException(status_code=500, detail=f"SendGrid error: {res.status}")
+                                        body_content = res.read().decode()
+                                        err = f"SendGrid urllib failed: {res.status} {body_content}"
+                                        print(err)
+                                        errors.append(err)
+                                        raise RuntimeError(err)
                             except Exception as e:
-                                print(f"SendGrid urllib exception: {e}")
+                                err = f"SendGrid urllib exception: {e}"
+                                print(err)
+                                errors.append(err)
                                 raise
                     except Exception as sg_err:
-                        print(f"SendGrid attempt failed: {sg_err}")
-                        raise HTTPException(status_code=500, detail=f"Email Error after fallbacks: {sg_err}")
+                        err = f"SendGrid attempt failed: {sg_err}"
+                        print(err)
+                        errors.append(err)
+                        raise HTTPException(status_code=500, detail=f"Email Error after fallbacks. Attempts:\n" + "\n".join(errors))
                 else:
-                    raise HTTPException(status_code=500, detail=f"Email send failed: {starttls_err}")
+                    raise HTTPException(status_code=500, detail=f"Email send failed. Attempts:\n" + "\n".join(errors))
     except Exception as e:
         print(f"Email send error: {e}")
-        raise HTTPException(status_code=500, detail=f"Email Error: {str(e)}")
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"Email Error: {str(e)}. Attempts:\n" + "\n".join(errors))
 
 
 @router.api_route("/", methods=["GET", "HEAD"])
