@@ -16,7 +16,9 @@ const LandingPage = () => {
   }, []);
 
   const handleGetStarted = () => {
-    navigate(isAuthenticated ? "/app" : "/auth");
+    // Commented out original check and redirect to /auth
+    // navigate(isAuthenticated ? "/app" : "/auth");
+    navigate("/app");
   };
 
   const features = [

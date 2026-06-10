@@ -12,19 +12,27 @@ export default function Layout() {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    const authToken = localStorage.getItem("institute-auth");
-    const email = localStorage.getItem("email");
-    if (authToken && email) {
-      setIsAuthenticated(true);
-      setUser({ email });
-    }
+    // Commented out original authentication verification
+    // const authToken = localStorage.getItem("institute-auth");
+    // const email = localStorage.getItem("email");
+    // if (authToken && email) {
+    //   setIsAuthenticated(true);
+    //   setUser({ email });
+    // }
+    
+    // Auto-login with dummy credentials
+    localStorage.setItem("institute-auth", "dummy-token-value");
+    localStorage.setItem("email", "dummy@gradex.com");
+    setIsAuthenticated(true);
+    setUser({ email: "dummy@gradex.com" });
   }, []);
 
   const handleSignOut = () => {
-    localStorage.removeItem("institute-auth");
-    setIsAuthenticated(false);
-    setUser(null);
-    setIsSidebarOpen(false);
+    // Commented out original sign out logic to keep user logged in with dummy account
+    // localStorage.removeItem("institute-auth");
+    // setIsAuthenticated(false);
+    // setUser(null);
+    // setIsSidebarOpen(false);
   };
 
   return (

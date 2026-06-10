@@ -69,6 +69,7 @@ function Header({ isAuthenticated = false, user, onSignOut, toggleSidebar }) {
                     <span className="text-sm text-gray-300">{user.email || "User"}</span>
                   </div>
                 )}
+                {/* Commented out Sign Out button to keep dummy user logged in permanently
                 <Button
                   onClick={handleSignOut}
                   variant="outline"
@@ -78,8 +79,10 @@ function Header({ isAuthenticated = false, user, onSignOut, toggleSidebar }) {
                   <LogOut className="h-4 w-4 mr-2" />
                   Sign out
                 </Button>
+                */}
               </div>
             ) : (
+              /* Commented out Sign In link since the dummy account is always authenticated
               <Link to="/auth">
                 <Button 
                   variant="outline"
@@ -90,6 +93,8 @@ function Header({ isAuthenticated = false, user, onSignOut, toggleSidebar }) {
                   Sign in
                 </Button>
               </Link>
+              */
+              null
             )}
           </nav>
 

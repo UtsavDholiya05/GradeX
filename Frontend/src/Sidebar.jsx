@@ -133,6 +133,7 @@ function Sidebar({ isSidebarOpen, toggleSidebar, user, onSignOut }) {
           </motion.ul>
         </nav>
 
+        {/* Commented out Sign Out button to keep the dummy user logged in permanently
         <motion.div 
           variants={itemVariants}
           className="p-6 border-t border-gray-700/50"
@@ -149,6 +150,7 @@ function Sidebar({ isSidebarOpen, toggleSidebar, user, onSignOut }) {
             <span className="group-hover:text-red-400 transition-colors">Sign Out</span>
           </Button>
         </motion.div>
+        */}
       </div>
     </motion.aside>
   );

@@ -1,85 +1,56 @@
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse
+from starlette.responses import JSONResponse
 import jwt
 import os
+from DB.database_connection import get_database
+from bson import ObjectId
 
-PUBLIC_PATHS = ["/", "/health", "/v1/send-otp", "/v1/verify-otp", "/favicon.ico"]
+PUBLIC_PATHS = ["/", "/v1/send-otp", "/v1/verify-otp", "/favicon.ico"]
 
 class JWTMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Handle OPTIONS requests immediately - return 200 with CORS headers
         if request.method == "OPTIONS":
-            return PlainTextResponse(
-                "",
-                status_code=200,
-                headers={
-                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
-                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                    "Access-Control-Max-Age": "3600",
-                }
-            )
+            return await call_next(request)
         
         path = request.url.path
 
-        # Allow public paths without auth
         if path in PUBLIC_PATHS:
-            response = await call_next(request)
-            response.headers["Access-Control-Allow-Origin"] = request.headers.get("origin", "*")
-            return response
+            return await call_next(request)
 
-        # Check for valid JWT token
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            return JSONResponse(
-                status_code=401, 
-                content={"detail": "Missing or invalid token"},
-                headers={
-                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
-                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                }
-            )
+        # Ensure a dummy user exists in the database and get their ID
+        db = get_database()
+        dummy_user = db.users.find_one({"email": "dummy@gradex.com"})
+        if not dummy_user:
+            inserted = db.users.insert_one({
+                "email": "dummy@gradex.com",
+                "paperHistory": [],
+                "otp": "",
+                "otpExpires": ""
+            })
+            dummy_user_id = str(inserted.inserted_id)
+        else:
+            dummy_user_id = str(dummy_user["_id"])
 
-        token = auth_header.split(" ")[1]
+        # Commented out original JWT Authentication logic
+        # auth_header = request.headers.get("Authorization")
+        # if not auth_header or not auth_header.startswith("Bearer "):
+        #     return JSONResponse(status_code=401, content={"detail": "Missing or invalid token"})
+        # 
+        # token = auth_header.split(" ")[1]
+        # 
+        # try:
+        #     payload = jwt.decode(token, os.getenv("JWT_SECRET"), algorithms=["HS256"])
+        #     request.state.user = payload
+        # except jwt.ExpiredSignatureError:
+        #     return JSONResponse(status_code=401, content={"detail": "Token expired"})
+        # except jwt.InvalidTokenError:
+        #     return JSONResponse(status_code=401, content={"detail": "Invalid token"})
 
-        try:
-            jwt_secret = os.getenv("JWT_SECRET")
-            if not jwt_secret:
-                return JSONResponse(
-                    status_code=500, 
-                    content={"detail": "JWT_SECRET not configured"},
-                    headers={
-                        "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
-                        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                    }
-                )
-                
-            payload = jwt.decode(token, jwt_secret, algorithms=["HS256"])
-            request.state.user = payload
-        except jwt.ExpiredSignatureError:
-            return JSONResponse(
-                status_code=401, 
-                content={"detail": "Token expired"},
-                headers={
-                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
-                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                }
-            )
-        except jwt.InvalidTokenError as e:
-            return JSONResponse(
-                status_code=401, 
-                content={"detail": f"Invalid token: {str(e)}"},
-                headers={
-                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
-                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                }
-            )
+        # Injecting dummy user payload for routes
+        request.state.user = {
+            "user_id": dummy_user_id,
+            "email": "dummy@gradex.com"
+        }
 
-        response = await call_next(request)
-        response.headers["Access-Control-Allow-Origin"] = request.headers.get("origin", "*")
-        return response
+        return await call_next(request)

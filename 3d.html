@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whitelion Cinematic 3D Studio Configurator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body class="bg-slate-950 text-white font-sans overflow-hidden select-none">
+
+    <div class="absolute inset-0 p-4 z-50 pointer-events-none flex justify-between gap-4">
+        
+        <div class="w-80 pointer-events-auto bg-slate-900/90 backdrop-blur-md p-4 rounded-xl border border-slate-700/50 shadow-2xl flex flex-col h-full overflow-y-auto">
+            <div class="mb-4">
+                <span class="text-[9px] font-bold text-indigo-400 uppercase tracking-widest block">Cinematic Studio</span>
+                <h1 class="text-lg font-black text-white tracking-tight">AirHome 3D Studio</h1>
+                <p class="text-[11px] text-slate-400 mt-0.5">Automated IoT Motion Simulation Active. Left-click to select/drag items. Press [DEL] to clear.</p>
+            </div>
+
+            <!-- AUTOMATION LOOP SIMULATOR CONTROLS -->
+            <div class="mb-4">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 border-b border-slate-800/60 pb-1">🤖 Live Entry Automation</h3>
+                <div class="flex flex-col gap-2">
+                    <button onclick="resetWalkingSimulation()" class="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-bold transition-all text-center flex items-center justify-center gap-2 shadow-lg shadow-indigo-950/50">
+                        🔄 Re-run Entry Simulation
+                    </button>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 border-b border-slate-800/60 pb-1">🎛️ Touch Switch Panels</h3>
+                <div class="flex flex-col gap-2">
+                    <button onclick="spawnHomeHardware('quartz_panel')" class="flex justify-between items-center bg-slate-950 hover:bg-slate-800 border border-slate-800 p-2.5 rounded-lg text-left transition-all group">
+                        <div>
+                            <span class="text-xs font-bold block group-hover:text-indigo-400">Quartz 4M Panel</span>
+                            <span class="text-[10px] text-slate-500 block">Snaps directly onto the walls</span>
+                        </div>
+                        <span class="text-xs font-bold text-indigo-400">₹4,500</span>
+                    </button>
+                    <button onclick="spawnHomeHardware('posh_panel')" class="flex justify-between items-center bg-slate-950 hover:bg-slate-800 border border-slate-800 p-2.5 rounded-lg text-left transition-all group">
+                        <div>
+                            <span class="text-xs font-bold block group-hover:text-indigo-400">Posh 8M Panel</span>
+                            <span class="text-[10px] text-slate-500 block">Chrome premium velvet bezel</span>
+                        </div>
+                        <span class="text-xs font-bold text-indigo-400">₹7,200</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 border-b border-slate-800/60 pb-1">🌀 Smart Air Devices</h3>
+                <div class="flex flex-col gap-2">
+                    <button onclick="spawnHomeHardware('smart_fan')" class="flex justify-between items-center bg-slate-950 hover:bg-slate-800 border border-slate-800 p-2.5 rounded-lg text-left transition-all group">
+                        <div>
+                            <span class="text-xs font-bold block group-hover:text-indigo-400">Smart Ceiling Fan</span>
+                            <span class="text-[10px] text-slate-500 block">Locks onto upper roof plane</span>
+                        </div>
+                        <span class="text-xs font-bold text-indigo-400">₹5,500</span>
+                    </button>
+                    <button onclick="spawnHomeHardware('airblaster')" class="flex justify-between items-center bg-slate-950 hover:bg-slate-800 border border-slate-800 p-2.5 rounded-lg text-left transition-all group">
+                        <div>
+                            <span class="text-xs font-bold block group-hover:text-indigo-400">AirBlaster IR Node</span>
+                            <span class="text-[10px] text-slate-500 block">Universal media controller</span>
+                        </div>
+                        <span class="text-xs font-bold text-indigo-400">₹3,800</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="mt-auto bg-slate-950 p-3 rounded-lg border border-slate-800/80">
+                <span class="text-[10px] font-bold text-indigo-400 uppercase block mb-1">Interactive Status</span>
+                <div id="selection-tip" class="text-[10px] text-slate-400 leading-relaxed">
+                    Left-click any placed smart accessory to select it, then press [DEL] or [BACKSPACE] on your keyboard to delete.
+                </div>
+                <div class="mt-2 pt-2 border-t border-slate-900 flex items-center justify-between text-[9px] text-slate-500 font-mono">
+                    <span>Selected: <span id="selected-device-label" class="text-slate-300 font-bold">None</span></span>
+                    <span id="delete-btn-hint" class="hidden text-red-400 bg-red-950/50 px-1.5 py-0.5 rounded border border-red-900/40">Press [DEL] to Remove</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="w-64 flex flex-col justify-between items-end gap-4">
+            
+            <div class="pointer-events-auto bg-slate-900/90 backdrop-blur-md px-5 py-3 rounded-xl border border-slate-700/50 shadow-2xl text-right w-full">
+                <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Estimated Project Invoice</span>
+                <span id="bill-total" class="text-2xl font-black text-indigo-400">₹0</span>
+                <span id="item-count" class="text-[10px] text-slate-500 block mt-0.5">0 Active Devices Configured</span>
+            </div>
+
+            <div class="pointer-events-auto bg-black/85 backdrop-blur-xl p-4 rounded-xl border border-slate-800 shadow-2xl w-full">
+                <div class="text-[9px] tracking-widest text-center text-slate-500 font-mono font-bold uppercase mb-3">AirHome Scene Matrix</div>
+                <div class="grid grid-cols-2 gap-3 justify-items-center">
+                    <button onclick="triggerAmbientScene('night')" class="w-full py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs font-semibold flex items-center justify-center gap-1.5 hover:border-indigo-500 transition-all">
+                        <span>🌙</span> Night
+                    </button>
+                    <button onclick="triggerAmbientScene('day')" class="w-full py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs font-semibold flex items-center justify-center gap-1.5 hover:border-indigo-500 transition-all">
+                        <span>☀️</span> Day
+                    </button>
+                    <button onclick="triggerAmbientScene('cozy')" class="w-full py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs font-semibold flex items-center justify-center gap-1.5 hover:border-indigo-500 transition-all">
+                        <span>☕</span> Cozy
+                    </button>
+                    <button onclick="triggerAmbientScene('golden')" class="w-full py-2 rounded-lg bg-slate-950 border border-slate-800 text-xs font-semibold flex items-center justify-center gap-1.5 hover:border-indigo-500 transition-all">
+                        <span>🌅</span> Sunset
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div id="3d-cinematic-viewport" class="w-screen h-screen absolute inset-0 z-10"></div>
+
+    <script>
+        // --- 1. CORE THREE.JS ENGINE SETUP ---
+        const container = document.getElementById('3d-cinematic-viewport');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x04060f);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(11, 7, 11); 
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+        controls.target.set(0, 1.2, 0);
+
+        // --- 2. LUXURY REALISTIC ROOM ARCHITECTURE HOUSING ---
+        const floorMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(10, 0.2, 10),
+            new THREE.MeshStandardMaterial({ color: 0x2e2520, roughness: 0.3, metalness: 0.1 })
+        );
+        floorMesh.position.y = -0.1;
+        floorMesh.receiveShadow = true;
+        scene.add(floorMesh);
+
+        const featureWall = new THREE.Mesh(
+            new THREE.BoxGeometry(10, 5, 0.3),
+            new THREE.MeshStandardMaterial({ color: 0x181e29, roughness: 0.55 }) 
+        );
+        featureWall.position.set(0, 2.5, -5);
+        featureWall.receiveShadow = true; featureWall.castShadow = true;
+        scene.add(featureWall);
+
+        // Left Side Architectural Window Wall Cutout
+        const wallMatLeft = new THREE.MeshStandardMaterial({ color: 0xdcdad9, roughness: 0.6 });
+        const wallLower = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1.2, 10), wallMatLeft);
+        wallLower.position.set(-5, 0.6, 0);
+        wallLower.receiveShadow = true; wallLower.castShadow = true;
+        scene.add(wallLower);
+
+        const wallUpper = new THREE.Mesh(new THREE.BoxGeometry(0.3, 1, 10), wallMatLeft);
+        wallUpper.position.set(-5, 4.5, 0);
+        wallUpper.receiveShadow = true; wallUpper.castShadow = true;
+        scene.add(wallUpper);
+
+        const windowGlass = new THREE.Mesh(
+            new THREE.BoxGeometry(0.05, 2.3, 10),
+            new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.15, roughness: 0.05 })
+        );
+        windowGlass.position.set(-5, 2.35, 0);
+        scene.add(windowGlass);
+
+        // --- AUTOMATED ENTRANCE DOOR UNIT (Right Architectural Framework) ---
+        const rightWallBack = new THREE.Mesh(new THREE.BoxGeometry(0.3, 5, 3.8), new THREE.MeshStandardMaterial({ color: 0x1e2430 }));
+        rightWallBack.position.set(5, 2.5, -3.1); rightWallBack.receiveShadow = true; scene.add(rightWallBack);
+
+        const rightWallFront = new THREE.Mesh(new THREE.BoxGeometry(0.3, 5, 4.2), new THREE.MeshStandardMaterial({ color: 0x1e2430 }));
+        rightWallFront.position.set(5, 2.5, 2.9); rightWallFront.receiveShadow = true; scene.add(rightWallFront);
+
+        const rightWallTop = new THREE.Mesh(new THREE.BoxGeometry(0.3, 2.6, 2.0), new THREE.MeshStandardMaterial({ color: 0x1e2430 }));
+        rightWallTop.position.set(5, 3.7, 0); rightWallTop.receiveShadow = true; scene.add(rightWallTop);
+
+        const doorPivotFrameGroup = new THREE.Group();
+        doorPivotFrameGroup.position.set(5, 0, -1.0); 
+        scene.add(doorPivotFrameGroup);
+
+        const luxuryDoorPanelMesh = new THREE.Mesh(
+            new THREE.BoxGeometry(0.1, 2.4, 2.0),
+            new THREE.MeshStandardMaterial({ color: 0x140f0c, roughness: 0.5 })
+        );
+        luxuryDoorPanelMesh.position.set(0, 1.2, 1.0); luxuryDoorPanelMesh.castShadow = true;
+        doorPivotFrameGroup.add(luxuryDoorPanelMesh);
+
+        // --- 3. CINEMATIC SCENE ENVIRONMENT LIGHTING ENGINE ---
+        const globalAmbientLight = new THREE.AmbientLight(0xffffff, 0.1);
+        scene.add(globalAmbientLight);
+
+        const skySunLight = new THREE.DirectionalLight(0xfff7ed, 1.6);
+        skySunLight.position.set(-12, 6, 2);
+        skySunLight.castShadow = true;
+        skySunLight.shadow.mapSize.width = 2048;
+        skySunLight.shadow.mapSize.height = 2048;
+        scene.add(skySunLight);
+
+        const coveLightGlow = new THREE.PointLight(0xffedd5, 1.5, 12, 1.5);
+        coveLightGlow.position.set(0, 4.8, -4);
+        scene.add(coveLightGlow);
+
+        const tvBacklightStrip = new THREE.PointLight(0xfba51a, 0.5, 6, 2); // Starts faint, pops on entry
+        tvBacklightStrip.position.set(0, 0.8, -4.6);
+        scene.add(tvBacklightStrip);
+
+        // MOTION SCANNER AUTOMATION SPOTLIGHTS
+        const occupancySpotlightA = new THREE.SpotLight(0x38bdf8, 0, 8, Math.PI / 4, 0.5, 1);
+        occupancySpotlightA.position.set(-2, 4.2, -4.5); occupancySpotlightA.target.position.set(-2, 0, -1);
+        scene.add(occupancySpotlightA); scene.add(occupancySpotlightA.target);
+
+        const occupancySpotlightB = new THREE.SpotLight(0x38bdf8, 0, 8, Math.PI / 4, 0.5, 1);
+        occupancySpotlightB.position.set(2, 4.2, -4.5); occupancySpotlightB.target.position.set(2, 0, -1);
+        scene.add(occupancySpotlightB); scene.add(occupancySpotlightB.target);
+
+        // --- 4. INDOOR LUXURY FURNITURE BLUEPRINTS ---
+        const sofaGroup = new THREE.Group();
+        sofaGroup.position.set(0, 0, 1.5);
+        scene.add(sofaGroup);
+        const fabricSofaMat = new THREE.MeshStandardMaterial({ color: 0x57534e, roughness: 0.85 });
+
+        const sofaSeat = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.5, 1.4), fabricSofaMat);
+        sofaSeat.position.y = 0.25; sofaSeat.castShadow = true; sofaSeat.receiveShadow = true;
+        sofaGroup.add(sofaSeat);
+
+        const sofaBackrest = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.8, 0.26), fabricSofaMat);
+        sofaBackrest.position.set(0, 0.65, 0.57); sofaBackrest.castShadow = true;
+        sofaGroup.add(sofaBackrest);
+
+        const coffeeTableTop = new THREE.Mesh(
+            new THREE.BoxGeometry(1.6, 0.06, 0.9),
+            new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.4 })
+        );
+        coffeeTableTop.position.set(0, 0.38, -0.3); coffeeTableTop.castShadow = true; coffeeTableTop.receiveShadow = true;
+        scene.add(coffeeTableTop);
+
+        const livingRug = new THREE.Mesh(
+            new THREE.BoxGeometry(4.8, 0.01, 2.8),
+            new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.9 })
+        );
+        livingRug.position.set(0, 0.005, -0.2); livingRug.receiveShadow = true;
+        scene.add(livingRug);
+
+        const mediaConsoleBench = new THREE.Mesh(
+            new THREE.BoxGeometry(4.4, 0.6, 0.7),
+            new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 })
+        );
+        mediaConsoleBench.position.set(-0.4, 0.3, -4.4); mediaConsoleBench.castShadow = true; mediaConsoleBench.receiveShadow = true;
+        scene.add(mediaConsoleBench);
+
+        const flatTVScreen = new THREE.Mesh(
+            new THREE.BoxGeometry(3.2, 1.7, 0.04),
+            new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.2, metalness: 0.8 })
+        );
+        flatTVScreen.position.set(-0.4, 2.2, -4.82); flatTVScreen.castShadow = true;
+        scene.add(flatTVScreen);
+
+        // --- DESIGNER CHANDELIER MULTI-BALL FIXTURE ---
+        const chandelierGroup = new THREE.Group();
+        chandelierGroup.position.set(1.5, 4.8, 0.5); 
+        scene.add(chandelierGroup);
+
+        const blackMetalMat = new THREE.MeshStandardMaterial({ color: 0x1c1917, metalness: 0.8, roughness: 0.2 });
+        const glowingGlassMat = new THREE.MeshBasicMaterial({ color: 0xfffaf0 });
+
+        const mainStem = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 1.2), blackMetalMat);
+        mainStem.position.y = -0.6; chandelierGroup.add(mainStem);
+
+        const crossBranch = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.03, 0.03), blackMetalMat);
+        crossBranch.position.y = -1.1; chandelierGroup.add(crossBranch);
+
+        const bulbGeo = new THREE.SphereGeometry(0.15, 16, 16);
+        const chandelierLightSource1 = new THREE.Mesh(bulbGeo, glowingGlassMat);
+        chandelierLightSource1.position.set(-0.8, -1.1, 0); chandelierGroup.add(chandelierLightSource1);
+
+        const chandelierLightSource2 = new THREE.Mesh(bulbGeo, glowingGlassMat);
+        chandelierLightSource2.position.set(0.8, -1.1, 0); chandelierGroup.add(chandelierLightSource2);
+
+        const chandelierCoreLight = new THREE.PointLight(0xfff4e0, 1.2, 8, 1);
+        chandelierCoreLight.position.set(0, -1.1, 0); chandelierGroup.add(chandelierCoreLight);
+
+        // --- REAL-TIME WALKING HUMAN ACTOR GEOMETRY ---
+        const humanActorGroup = new THREE.Group();
+        const skinMat = new THREE.MeshStandardMaterial({ color: 0xddb892, roughness: 0.6 });
+        const clothesMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.7 });
+
+        const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.14, 0.75, 12), clothesMat);
+        torso.position.y = 0.85; torso.castShadow = true; humanActorGroup.add(torso);
+
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 16), skinMat);
+        head.position.y = 1.35; head.castShadow = true; humanActorGroup.add(head);
+
+        const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.5), new THREE.MeshStandardMaterial({ color: 0x1e3a8a }));
+        legL.position.set(-0.07, 0.25, 0); legL.castShadow = true; humanActorGroup.add(legL);
+
+        const legR = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.5), new THREE.MeshStandardMaterial({ color: 0x1e3a8a }));
+        legR.position.set(0.07, 0.25, 0); legR.castShadow = true; humanActorGroup.add(legR);
+
+        scene.add(humanActorGroup);
+
+        // --- 5. DYNAMIC DEVICE INJECTION & LIFECYCLE MANAGEMENT ENGINE ---
+        const activeHardwarePlacementsList = [];
+        let runningCostInvoiceSum = 0;
+        let isFanAutomationSpinningActive = false;
+
+        function spawnHomeHardware(catalogKey) {
+            let targetMesh;
+            const glassPanelMat = new THREE.MeshStandardMaterial({ color: 0x020617, roughness: 0.05, metalness: 0.9 });
+            const matteWhiteApplianceMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.3 });
+
+            if(catalogKey === 'quartz_panel') {
+                targetMesh = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.55, 0.04), glassPanelMat);
+                targetMesh.position.set(0, 1.8, -4.8); 
+                targetMesh.userData = { axisPlane: 'vertical_wall', price: 4500, label: "Quartz 4M" };
+            } 
+            else if(catalogKey === 'posh_panel') {
+                targetMesh = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.55, 0.04), new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.8, roughness: 0.1 }));
+                targetMesh.position.set(0, 1.8, -4.8);
+                targetMesh.userData = { axisPlane: 'vertical_wall', price: 7200, label: "Posh 8M" };
+            }
+            else if(catalogKey === 'smart_fan') {
+                targetMesh = new THREE.Group();
+                const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.1, 16), matteWhiteApplianceMat);
+                const downrod = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.4), matteWhiteApplianceMat);
+                downrod.position.y = 0.2;
+                targetMesh.add(hub); targetMesh.add(downrod);
+
+                const bladeGeo = new THREE.BoxGeometry(1.3, 0.01, 0.14);
+                for(let i=0; i<3; i++) {
+                    const b = new THREE.Mesh(bladeGeo, matteWhiteApplianceMat); b.position.x = 0.65; b.castShadow = true;
+                    const p = new THREE.Group(); p.rotation.y = (Math.PI * 2 / 3) * i; p.add(b);
+                    targetMesh.add(p);
+                }
+                targetMesh.position.set(-2, 4.4, 0); 
+                targetMesh.userData = { axisPlane: 'horizontal_ceiling', price: 5500, label: "Smart Fan" };
+            }
+            else if(catalogKey === 'airblaster') {
+                targetMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.06, 16), glassPanelMat);
+                targetMesh.position.set(0, 0.44, -0.3); 
+                targetMesh.userData = { axisPlane: 'horizontal_table', price: 3800, label: "AirBlaster" };
+            }
+
+            if(!targetMesh) return;
+            targetMesh.castShadow = true;
+            scene.add(targetMesh);
+            activeHardwarePlacementsList.push(targetMesh);
+
+            runningCostInvoiceSum += targetMesh.userData.price;
+            updateHardwareInvoiceHUD();
+            selectActiveComponentMesh(targetMesh);
+        }
+
+        function updateHardwareInvoiceHUD() {
+            document.getElementById('bill-total').innerText = '₹' + runningCostInvoiceSum.toLocaleString('en-IN');
+            document.getElementById('item-count').innerText = activeHardwarePlacementsList.length + ' Active Devices Configured';
+        }
+
+        // --- 6. ADVANCED MOUSE INTERACTIVE TRANSLATION ENGINE ---
+        const raycaster = new THREE.Raycaster();
+        const mouseCoordinatesVector = new THREE.Vector2();
+
+        let focusedActiveSelectedMesh = null; 
+        let isUserCurrentlyDragging = false;
+
+        const boundingWallPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 4.8); 
+        const boundingRoofPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -4.4); 
+        const boundingTablePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.44); 
+
+        const planarIntersectionResultVector = new THREE.Vector3();
+
+        window.addEventListener('mousedown', executeRaycastMouseDownLock, false);
+        window.addEventListener('mousemove', executeObjectSpatialTranslationMove, false);
+        window.addEventListener('mouseup', releaseRaycastMouseUpLock, false);
+        window.addEventListener('keydown', parseKeyboardDeletionExecution, false);
+
+        function executeRaycastMouseDownLock(event) {
+            if(event.target.tagName === 'BUTTON' || event.target.closest('div').classList.contains('pointer-events-auto')) return;
+
+            mouseCoordinatesVector.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouseCoordinatesVector.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouseCoordinatesVector, camera);
+            const intersections = raycaster.intersectObjects(scene.children, true);
+
+            const matchedRootHardwareNode = intersections.find(hit => {
+                let node = hit.object;
+                while(node && node !== scene) {
+                    if(activeHardwarePlacementsList.includes(node)) {
+                        hit.rootNodeTarget = node;
+                        return true;
+                    }
+                    node = node.parent;
+                }
+                return false;
+            });
+
+            if(matchedRootHardwareNode) {
+                isUserCurrentlyDragging = true;
+                controls.enabled = false; 
+                selectActiveComponentMesh(matchedRootHardwareNode.rootNodeTarget);
+            } else {
+                clearActiveComponentSelection();
+            }
+        }
+
+        function executeObjectSpatialTranslationMove(event) {
+            if (!focusedActiveSelectedMesh || !isUserCurrentlyDragging) return;
+
+            mouseCoordinatesVector.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouseCoordinatesVector.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouseCoordinatesVector, camera);
+
+            const assignedTrackingAxisConstraint = focusedActiveSelectedMesh.userData.axisPlane;
+
+            if(assignedTrackingAxisConstraint === 'vertical_wall') {
+                if(raycaster.ray.intersectPlane(boundingWallPlane, planarIntersectionResultVector)) {
+                    focusedActiveSelectedMesh.position.x = Math.max(-4.4, Math.min(4.4, planarIntersectionResultVector.x));
+                    focusedActiveSelectedMesh.position.y = Math.max(0.8, Math.min(4.3, planarIntersectionResultVector.y));
+                }
+            }
+            else if(assignedTrackingAxisConstraint === 'horizontal_ceiling') {
+                if(raycaster.ray.intersectPlane(boundingRoofPlane, planarIntersectionResultVector)) {
+                    focusedActiveSelectedMesh.position.x = Math.max(-4.2, Math.min(4.2, planarIntersectionResultVector.x));
+                    focusedActiveSelectedMesh.position.z = Math.max(-4.2, Math.min(4.2, planarIntersectionResultVector.z));
+                }
+            }
+            else if(assignedTrackingAxisConstraint === 'horizontal_table') {
+                if(raycaster.ray.intersectPlane(boundingTablePlane, planarIntersectionResultVector)) {
+                    focusedActiveSelectedMesh.position.x = Math.max(-0.7, Math.min(0.7, planarIntersectionResultVector.x));
+                    focusedActiveSelectedMesh.position.z = Math.max(-0.6, Math.min(0.1, planarIntersectionResultVector.z));
+                }
+            }
+        }
+
+        function releaseRaycastMouseUpLock() {
+            isUserCurrentlyDragging = false;
+            controls.enabled = true; 
+        }
+
+        function selectActiveComponentMesh(targetMesh) {
+            clearActiveComponentSelection();
+            focusedActiveSelectedMesh = targetMesh;
+            applyRecursiveEmissiveHexColor(focusedActiveSelectedMesh, 0x312e81);
+
+            document.getElementById('selected-device-label').innerText = focusedActiveSelectedMesh.userData.label;
+            document.getElementById('selection-tip').innerText = `Selected device [${focusedActiveSelectedMesh.userData.label}]. Slide with left-click drag, or press [DELETE] on your keyboard to instantly wipe it out of the layout.`;
+            document.getElementById('delete-btn-hint').classList.remove('hidden');
+        }
+
+        function clearActiveComponentSelection() {
+            if (focusedActiveSelectedMesh) {
+                applyRecursiveEmissiveHexColor(focusedActiveSelectedMesh, 0x000000); 
+            }
+            focusedActiveSelectedMesh = null;
+            document.getElementById('selected-device-label').innerText = "None";
+            document.getElementById('selection-tip').innerText = "Click any product above to inject it into the room. Left-click placed hardware to grab/drag.";
+            document.getElementById('delete-btn-hint').classList.add('hidden');
+        }
+
+        function parseKeyboardDeletionExecution(event) {
+            if((event.key === 'Delete' || event.key === 'Backspace') && focusedActiveSelectedMesh) {
+                runningCostInvoiceSum -= focusedActiveSelectedMesh.userData.price;
+                scene.remove(focusedActiveSelectedMesh);
+
+                const arrayIndexTargetMatch = activeHardwarePlacementsList.indexOf(focusedActiveSelectedMesh);
+                if (arrayIndexTargetMatch > -1) {
+                    activeHardwarePlacementsList.splice(arrayIndexTargetMatch, 1);
+                }
+
+                clearActiveComponentSelection();
+                updateHardwareInvoiceHUD();
+            }
+        }
+
+        function applyRecursiveEmissiveHexColor(targetNode, hexColorValue) {
+            targetNode.traverse(child => {
+                if(child.isMesh && child.material && child.material.emissive) {
+                    child.material.emissive.setHex(hexColorValue);
+                }
+            });
+        }
+
+        // --- 7. VIDEO SCENE SIMULATOR SWITCH LAYER (AMBIENT CONTROL MIX) ---
+        function triggerAmbientScene(sceneKey) {
+            if(sceneKey === 'night') {
+                skySunLight.intensity = 0.02; 
+                coveLightGlow.intensity = 0.3; 
+                tvBacklightStrip.intensity = 3.0; 
+                chandelierCoreLight.intensity = 0.2;
+                scene.background.setHex(0x03050a); 
+            } 
+            else if(sceneKey === 'day') {
+                skySunLight.intensity = 1.8; 
+                coveLightGlow.intensity = 0.8;
+                tvBacklightStrip.intensity = 0.5;
+                chandelierCoreLight.intensity = 0.4;
+                scene.background.setHex(0x0f1424);
+            }
+            else if(sceneKey === 'cozy') {
+                skySunLight.intensity = 0.1;
+                coveLightGlow.intensity = 1.6; 
+                tvBacklightStrip.intensity = 1.2;
+                chandelierCoreLight.intensity = 1.8; 
+                scene.background.setHex(0x05070f);
+            }
+            else if(sceneKey === 'golden') {
+                skySunLight.intensity = 0.5;
+                skySunLight.color.setHex(0xf59e0b); 
+                coveLightGlow.intensity = 0.4;
+                tvBacklightStrip.intensity = 2.0;
+                chandelierCoreLight.intensity = 0.8;
+            }
+        }
+
+        // --- 8. AUTOMATED ENTRY PHYSICS & RUNTIME RENDERING CLOCK ---
+        let simTimelineClock = 0;
+        let targetDoorAngleRotation = 0;
+
+        function resetWalkingSimulation() {
+            simTimelineClock = 0;
+            isFanAutomationSpinningActive = false;
+            tvBacklightStrip.intensity = 0.5;
+            occupancySpotlightA.intensity = 0;
+            occupancySpotlightB.intensity = 0;
+        }
+
+        function runMainGraphicsRenderLoopTick() {
+            requestAnimationFrame(runMainGraphicsRenderLoopTick);
+            simTimelineClock += 0.015;
+
+            // --- REAL-TIME WALKING AND SMART ENTERING TIMELINE ROUTINE ---
+            let currentHumanPos = new THREE.Vector3();
+
+            if (simTimelineClock < 3.0) {
+                // Step A: Man approaches the entry door from outside the room space
+                let interpolationRatio = simTimelineClock / 3.0;
+                currentHumanPos.lerpVectors(new THREE.Vector3(6.5, 0, 0), new THREE.Vector3(4.5, 0, 0), interpolationRatio);
+                humanActorGroup.rotation.y = -Math.PI / 2;
+
+                if (currentHumanPos.x < 5.8) {
+                    targetDoorAngleRotation = -Math.PI / 1.8; // Door opens up automatically type
+                } else {
+                    targetDoorAngleRotation = 0;
+                }
+            } 
+            else if (simTimelineClock >= 3.0 && simTimelineClock < 7.0) {
+                // Step B: Man walks into the luxury studio layout toward the rug center
+                let interpolationRatio = (simTimelineClock - 3.0) / 4.0;
+                currentHumanPos.lerpVectors(new THREE.Vector3(4.5, 0, 0), new THREE.Vector3(0, 0, -1), interpolationRatio);
+                humanActorGroup.rotation.y = -Math.PI / 1.3;
+
+                // Smart appliances turn on instantly as the boundary is crossed
+                isFanAutomationSpinningActive = true;
+                tvBacklightStrip.intensity = THREE.MathUtils.lerp(tvBacklightStrip.intensity, 3.5, 0.05);
+            }
+            else if (simTimelineClock >= 7.0 && simTimelineClock < 11.0) {
+                // Step C: Man paces past the automated sensors on the feature wall
+                let interpolationRatio = (simTimelineClock - 7.0) / 4.0;
+                currentHumanPos.lerpVectors(new THREE.Vector3(0, 0, -1), new THREE.Vector3(-3.5, 0, -1), interpolationRatio);
+                humanActorGroup.rotation.y = Math.PI;
+            }
+            else {
+                // Step D: Simulation holds/ends pathing until manual reset loop click
+                currentHumanPos.set(-3.5, 0, -1);
+                targetDoorAngleRotation = THREE.MathUtils.lerp(targetDoorAngleRotation, 0, 0.05); // Clean door close
+            }
+
+            humanActorGroup.position.copy(currentHumanPos);
+
+            // Legs procedural walking animation swing rules
+            if (simTimelineClock < 11.0) {
+                let swingDelta = Math.sin(simTimelineClock * 9) * 0.25;
+                legL.rotation.x = swingDelta; legR.rotation.x = -swingDelta;
+            } else {
+                legL.rotation.x = 0; legR.rotation.x = 0;
+            }
+
+            // Slide door hinge angles via soft linear lerps
+            doorPivotFrameGroup.rotation.y = THREE.MathUtils.lerp(doorPivotFrameGroup.rotation.y, targetDoorAngleRotation, 0.08);
+
+            // --- USER FAN SPAWN OBJECT ROTATION MATRIX TRACKS ---
+            activeHardwarePlacementsList.forEach(item => {
+                if(item.userData.label === "Smart Fan" && isFanAutomationSpinningActive) {
+                    item.rotation.y += 0.15; 
+                }
+            });
+
+            // --- REAL-TIME LIGHT TURN ON/OFF SENSOR COORD CHECKS ---
+            let distanceToLeftSensor = humanActorGroup.position.distanceTo(new THREE.Vector3(-2, 0, -1));
+            if (distanceToLeftSensor < 1.8 && simTimelineClock < 12.0) {
+                occupancySpotlightA.intensity = THREE.MathUtils.lerp(occupancySpotlightA.intensity, 5.0, 0.1); // Turn ON light type
+            } else {
+                occupancySpotlightA.intensity = THREE.MathUtils.lerp(occupancySpotlightA.intensity, 0, 0.08); // Turn OFF light type
+            }
+
+            let distanceToRightSensor = humanActorGroup.position.distanceTo(new THREE.Vector3(2, 0, -1));
+            if (distanceToRightSensor < 1.8 && simTimelineClock < 12.0) {
+                occupancySpotlightB.intensity = THREE.MathUtils.lerp(occupancySpotlightB.intensity, 5.0, 0.1); // Turn ON light type
+            } else {
+                occupancySpotlightB.intensity = THREE.MathUtils.lerp(occupancySpotlightB.intensity, 0, 0.08); // Turn OFF light type
+            }
+
+            controls.update(); 
+            renderer.render(scene, camera);
+        }
+        runMainGraphicsRenderLoopTick(); 
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>

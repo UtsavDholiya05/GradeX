@@ -11,12 +11,6 @@ import re
 import google.generativeai as genai
 from groq import Groq
 import jwt
-try:
-    import requests
-except Exception:
-    requests = None
-    import urllib.request as _urllib_request
-    import json as _json
 from pydantic import BaseModel
 import smtplib
 from email.mime.text import MIMEText
@@ -29,17 +23,11 @@ db = get_database()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-JWT_SECRET = os.getenv("JWT_SECRET", "your-secret-key-change-in-production")
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SMTP_USER = os.getenv("EMAIL_USER") or os.getenv("USER")
+SMTP_USER = os.getenv("USER")
 SMTP_PASSWORD = os.getenv("PASS")
-
-# Debug: print resolved email config at startup (helps diagnose Render env issues)
-print(f"[Config] SMTP_USER resolved to: {SMTP_USER}")
-print(f"[Config] BREVO_API set: {bool(os.getenv('BREVO_API'))}")
-print(f"[Config] BREVO_LOGIN set: {bool(os.getenv('BREVO_LOGIN'))}")
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 genai.configure(api_key=GEMINI_API_KEY)
@@ -80,150 +68,14 @@ class VerifyOTPRequest(BaseModel):
 
 
 def create_access_token(data: dict):
-    to_encode = data.copy()
-    to_encode["exp"] = datetime.datetime.utcnow() + datetime.timedelta(days=30)
-    encoded_jwt = jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
-    return encoded_jwt
+    pass
 
 
 def send_email(to_email, subject, body):
-    """Try multiple email providers. HTTP APIs first (work on cloud), SMTP last (local dev)."""
-    errors = []
-    sender_email = SMTP_USER if SMTP_USER and "@" in SMTP_USER else "utsavstudy04@gmail.com"
-    print(f"[Email] Sending to: {to_email}, sender: {sender_email}")
-
-    # === 1. Brevo HTTP API (try with whatever BREVO_API key is set) ===
-    BREVO_API = os.getenv("BREVO_API")
-    if BREVO_API:
-        print(f"[Email] Trying Brevo HTTP API with key: {BREVO_API[:10]}...")
-        try:
-            url = "https://api.brevo.com/v3/smtp/email"
-            payload = {
-                "sender": {"name": "Gradex", "email": sender_email},
-                "to": [{"email": to_email}],
-                "subject": subject,
-                "htmlContent": f"<html><body><p>{body.replace(chr(10), '<br>')}</p></body></html>"
-            }
-            headers = {
-                "accept": "application/json",
-                "api-key": BREVO_API,
-                "content-type": "application/json"
-            }
-            if requests:
-                resp = requests.post(url, json=payload, headers=headers, timeout=15)
-                if resp.status_code in (200, 201, 202):
-                    print("[Email] SUCCESS via Brevo HTTP API")
-                    return True
-                else:
-                    err = f"Brevo HTTP API error: {resp.status_code} {resp.text}"
-                    print(f"[Email] {err}")
-                    errors.append(err)
-            else:
-                data = _json.dumps(payload).encode("utf-8")
-                req = _urllib_request.Request(url, data=data, headers=headers, method="POST")
-                with _urllib_request.urlopen(req, timeout=15) as res:
-                    if res.status in (200, 201, 202):
-                        print("[Email] SUCCESS via Brevo HTTP API (urllib)")
-                        return True
-                    else:
-                        err = f"Brevo HTTP API urllib error: {res.status}"
-                        print(f"[Email] {err}")
-                        errors.append(err)
-        except Exception as e:
-            err = f"Brevo HTTP API failed: {e}"
-            print(f"[Email] {err}")
-            errors.append(err)
-
-    # === 2. Brevo SMTP Relay on port 2525 (fallback if HTTP API failed) ===
-    if BREVO_API and BREVO_API.startswith("xsmtpsib-"):
-        brevo_login = os.getenv("BREVO_LOGIN") or os.getenv("EMAIL_USER") or sender_email
-        print(f"[Email] Trying Brevo SMTP relay (port 2525), login: {brevo_login}")
-        try:
-            msg = MIMEText(body)
-            msg["Subject"] = subject
-            msg["From"] = sender_email
-            msg["To"] = to_email
-            with smtplib.SMTP("smtp-relay.brevo.com", 2525, timeout=15) as server:
-                server.starttls()
-                server.login(brevo_login, BREVO_API)
-                server.sendmail(sender_email, [to_email], msg.as_string())
-            print("[Email] SUCCESS via Brevo SMTP relay (port 2525)")
-            return True
-        except Exception as e:
-            err = f"Brevo SMTP relay (2525) failed: {e}"
-            print(f"[Email] {err}")
-            errors.append(err)
-
-    # === 3. SendGrid HTTP API (if SENDGRID_API_KEY set) ===
-    SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
-    if SENDGRID_API_KEY:
-        print("[Email] Trying SendGrid HTTP API...")
-        try:
-            sg_url = "https://api.sendgrid.com/v3/mail/send"
-            payload = {
-                "personalizations": [{"to": [{"email": to_email}]}],
-                "from": {"email": sender_email},
-                "subject": subject,
-                "content": [{"type": "text/plain", "value": body}]
-            }
-            headers = {
-                "Authorization": f"Bearer {SENDGRID_API_KEY}",
-                "Content-Type": "application/json"
-            }
-            if requests:
-                resp = requests.post(sg_url, json=payload, headers=headers, timeout=15)
-                if resp.status_code in (200, 202):
-                    print("[Email] SUCCESS via SendGrid HTTP API")
-                    return True
-                else:
-                    err = f"SendGrid error: {resp.status_code} {resp.text}"
-                    print(f"[Email] {err}")
-                    errors.append(err)
-            else:
-                data = _json.dumps(payload).encode("utf-8")
-                req = _urllib_request.Request(sg_url, data=data, headers=headers, method="POST")
-                with _urllib_request.urlopen(req, timeout=15) as res:
-                    if res.status in (200, 202):
-                        print("[Email] SUCCESS via SendGrid HTTP API (urllib)")
-                        return True
-                    else:
-                        err = f"SendGrid urllib error: {res.status}"
-                        print(f"[Email] {err}")
-                        errors.append(err)
-        except Exception as e:
-            err = f"SendGrid failed: {e}"
-            print(f"[Email] {err}")
-            errors.append(err)
-
-    # === 4. Gmail SMTP (only works locally - blocked on cloud hosts) ===
-    if SMTP_USER and SMTP_PASSWORD and "@" in SMTP_USER:
-        print("[Email] Trying Gmail SMTP...")
-        msg = MIMEText(body)
-        msg["Subject"] = subject
-        msg["From"] = SMTP_USER
-        msg["To"] = to_email
-        for port, method in [(465, "SSL"), (587, "STARTTLS")]:
-            try:
-                if method == "SSL":
-                    with smtplib.SMTP_SSL("smtp.gmail.com", port, timeout=10) as server:
-                        server.login(SMTP_USER, SMTP_PASSWORD)
-                        server.sendmail(SMTP_USER, [to_email], msg.as_string())
-                else:
-                    with smtplib.SMTP("smtp.gmail.com", port, timeout=10) as server:
-                        server.starttls()
-                        server.login(SMTP_USER, SMTP_PASSWORD)
-                        server.sendmail(SMTP_USER, [to_email], msg.as_string())
-                print(f"[Email] SUCCESS via Gmail SMTP ({method} port {port})")
-                return True
-            except Exception as e:
-                err = f"Gmail SMTP {method} (port {port}) failed: {e}"
-                print(f"[Email] {err}")
-                errors.append(err)
-
-    # === All methods failed ===
-    error_summary = "\n".join(errors) if errors else "No email provider configured"
-    print(f"[Email] ALL METHODS FAILED:\n{error_summary}")
-    raise HTTPException(status_code=500, detail=f"Email send failed. Attempts:\n{error_summary}")
+    try:
+        pass
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
 
 
 @router.api_route("/", methods=["GET", "HEAD"])
@@ -233,48 +85,35 @@ async def root():
 
 @router.post("/v1/send-otp")
 async def send_otp(request: SendOTPRequest):
-    try:
-        otp = f"{random.randint(100000, 999999)}"
-        expires = datetime.datetime.now() + datetime.timedelta(minutes=5)
-        
-        db.users.update_one(
-            {"email": request.email},
-            {"$set": {"email": request.email, "otp": otp, "otpExpires": expires}, "$setOnInsert": {"paperHistory": []}},
-            upsert=True,
-        )
-        
-        # Send email and handle any errors
-        send_email(request.email, "Your OTP for Gradex", f"Your OTP is {otp}. It is valid for 5 minutes.")
-        return {"success": True, "message": "OTP sent to your email."}
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Send OTP error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to send OTP: {str(e)}")
+    otp = f"{random.randint(100000, 999999)}"
+    expires = datetime.datetime.now() + datetime.timedelta(minutes=5)
+    
+    db.users.update_one(
+        {"email": request.email},
+        {"$set": {"email": request.email, "otp": otp, "otpExpires": expires}, "$setOnInsert": {"paperHistory": []}},
+        upsert=True,
+    )
+    
+    send_email(request.email, "Your OTP for Gradex", f"Your OTP is {otp}. It is valid for 5 minutes.")
+    return {"success": True, "message": "OTP sent."}
 
 
 @router.post("/v1/verify-otp")
 async def verify_otp(request: VerifyOTPRequest):
-    try:
-        user = db.users.find_one({"email": request.email})
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        if user["otp"] != request.otp:
-            raise HTTPException(status_code=400, detail="Invalid OTP")
-        
-        if datetime.datetime.now() > user["otpExpires"]:
-            raise HTTPException(status_code=400, detail="OTP expired")
+    user = db.users.find_one({"email": request.email})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user["otp"] != request.otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+    
+    if datetime.datetime.now() > user["otpExpires"]:
+        raise HTTPException(status_code=400, detail="OTP expired")
 
-        db.users.update_one({"email": request.email}, {"$set": {"otp": "", "otpExpires": ""}})
-        
-        token = create_access_token({"user_id": str(user["_id"])})
-        return {"success": True, "message": "OTP verified", "token": token}
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Verify OTP error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to verify OTP: {str(e)}")
+    db.users.update_one({"email": request.email}, {"$set": {"otp": "", "otpExpires": ""}})
+    
+    token = create_access_token({"user_id": str(user["_id"])})
+    return {"success": True, "message": "OTP verified", "token": token}
 
 
 @router.post("/v1/upload")

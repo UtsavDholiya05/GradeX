@@ -33,14 +33,18 @@ const Dashboard = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const token = localStorage.getItem("institute-auth");
-    if (!token) {
-      toast.error("Please log in to access the dashboard.");
-      navigate("/auth");
-    } else {
-      fetchStats();
-      fetchPapers();
-    }
+    // Commented out original authentication check
+    // const token = localStorage.getItem("institute-auth");
+    // if (!token) {
+    //   toast.error("Please log in to access the dashboard.");
+    //   navigate("/auth");
+    // } else {
+    //   fetchStats();
+    //   fetchPapers();
+    // }
+    
+    fetchStats();
+    fetchPapers();
   }, [navigate]);
 
   const fetchStats = async () => {
