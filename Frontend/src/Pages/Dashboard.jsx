@@ -122,6 +122,7 @@ const Dashboard = () => {
     }
     setEvaluating(true);
     let completed = 0;
+    let failedCount = 0;
     for (const answerSheet of answerSheets) {
       const formData = new FormData();
       formData.append("questionPaperId", selectedPaperId);
@@ -143,15 +144,21 @@ const Dashboard = () => {
         });
         completed++;
         setProgress(Math.round((completed / answerSheets.length) * 100));
-      } catch {
-        toast.error(`Upload failed for ${answerSheet.name}`);
+      } catch (error) {
+        failedCount++;
+        const detail = error?.response?.data?.detail || `Upload failed for ${answerSheet.name}`;
+        toast.error(detail);
       }
     }
     setEvaluating(false);
     setShowAnswerModal(false);
     setAnswerSheets([]);
     setProgress(0);
-    toast.success("Answer sheets evaluated!");
+    if (failedCount === 0) {
+      toast.success("Answer sheets evaluated!");
+    } else if (completed > 0) {
+      toast.warn(`${completed} evaluated, ${failedCount} failed.`);
+    }
     fetchStats();
     fetchPapers();
   };

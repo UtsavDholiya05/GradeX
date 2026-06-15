@@ -184,7 +184,51 @@ def send_email(to_email, subject, body):
 
 @router.api_route("/", methods=["GET", "HEAD"])
 async def root():
-    return {"message": "Welcome to Gradex Backend!"}
+    return {"message": "Welcome to Gradex Backend!", "version": "2.0-diagnostic"}
+
+
+@router.get("/v1/test-pipeline")
+async def test_pipeline():
+    """Diagnostic endpoint to test each component of the upload pipeline."""
+    results = {
+        "pymupdf": "not tested",
+        "gemini_text": "not tested",
+        "gemini_parse": "not tested",
+        "gemini_model": "not tested",
+    }
+    
+    # Test 1: PyMuPDF version
+    try:
+        results["pymupdf"] = f"OK - fitz version: {fitz.__doc__}"
+    except Exception as e:
+        results["pymupdf"] = f"FAILED: {str(e)}"
+    
+    # Test 2: Gemini model instantiation
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        results["gemini_model"] = f"OK - model created"
+    except Exception as e:
+        results["gemini_model"] = f"FAILED: {str(e)}"
+    
+    # Test 3: Gemini simple text generation
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content("Reply with exactly: GEMINI_OK")
+        results["gemini_text"] = f"OK - response: {response.text[:100]}"
+    except Exception as e:
+        results["gemini_text"] = f"FAILED: {str(e)}"
+    
+    # Test 4: Gemini JSON parsing
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content('Return ONLY this JSON, nothing else: {"maxMarks": 50, "questions": [{"qNo": "1", "question": "Test question", "maxMarks": 10, "guidelines": "Test"}]}')
+        raw = response.text
+        parsed = clean_json_output(raw)
+        results["gemini_parse"] = f"OK - parsed maxMarks: {parsed.get('maxMarks')}, raw length: {len(raw)}"
+    except Exception as e:
+        results["gemini_parse"] = f"FAILED: {str(e)}"
+    
+    return results
 
 
 @router.post("/v1/send-otp")
@@ -296,7 +340,7 @@ async def evaluate_exam(questionPaperId: str = Form(...), answerSheet: UploadFil
             raise HTTPException(status_code=404, detail="Question paper not found.")
 
         filename = answerSheet.filename
-        student_id = filename.split('-')[0]
+        student_id = filename.split('-')[0].strip()
         if not student_id:
             raise HTTPException(status_code=400, detail="Filename must begin with a student ID")
 
@@ -309,16 +353,80 @@ async def evaluate_exam(questionPaperId: str = Form(...), answerSheet: UploadFil
             if already:
                 raise HTTPException(status_code=409, detail="This student's answer sheet for this paper is already evaluated.")
 
-        qp_meta = {
-            "questions" : qp.get("questions", []),
-            "maxMarks" : qp.get("maxMarks", 0)
+        # --- Actually read and extract text from the answer sheet PDF ---
+        answer_bytes = await answerSheet.read()
+        try:
+            answer_text = extract_text_from_pdf(answer_bytes)
+            print(f"Answer sheet text extracted: {len(answer_text)} chars")
+        except Exception as e:
+            print(f"Answer sheet text extraction failed: {e}")
+            answer_text = ""
+
+        questions = qp.get("questions", [])
+        max_marks = qp.get("maxMarks", 0)
+
+        # --- Build evaluation prompt and call Gemini ---
+        questions_json = json.dumps(questions, indent=2)
+        eval_prompt = f"""You are a strict but fair exam evaluator. Evaluate the student's answers against the question paper and guidelines provided.
+
+QUESTION PAPER DETAILS:
+{questions_json}
+
+STUDENT'S ANSWER SHEET TEXT:
+{answer_text}
+
+For each question in the question paper, evaluate the student's answer and provide:
+1. marksObtained: marks awarded (0 to maxMarks for that question)
+2. reasonForDeduction: why marks were deducted (empty string if full marks)
+3. reasonForFullMarks: why full marks were given (empty string if not full marks)
+4. improvisationTips: suggestions for improvement
+
+Return ONLY valid JSON in this exact format, no markdown, no code fences:
+{{
+  "evaluation": [
+    {{
+      "questionNumber": "1",
+      "marksObtained": 8,
+      "maxMarks": 10,
+      "reasonForDeduction": "Missing key concept X",
+      "reasonForFullMarks": "",
+      "improvisationTips": "Include more examples"
+    }}
+  ],
+  "totalMarks": 25
+}}
+"""
+        evaluation_result = {"evaluation": [], "totalMarks": 0}
+        try:
+            raw_eval = evaluate_with_gemini(eval_prompt)
+            evaluation_result = clean_json_output(raw_eval)
+            print(f"Gemini evaluation: totalMarks={evaluation_result.get('totalMarks')}, questions evaluated={len(evaluation_result.get('evaluation', []))}")
+        except Exception as e:
+            print(f"Gemini evaluation failed: {e}")
+            # Fallback: create empty evaluation entries for each question
+            evaluation_result = {
+                "evaluation": [
+                    {
+                        "questionNumber": q.get("qNo", str(i+1)),
+                        "marksObtained": 0,
+                        "maxMarks": q.get("maxMarks", 0),
+                        "reasonForDeduction": "Evaluation failed - please re-evaluate",
+                        "reasonForFullMarks": "",
+                        "improvisationTips": ""
+                    }
+                    for i, q in enumerate(questions)
+                ],
+                "totalMarks": 0
+            }
+
+        # --- Save result to DB ---
+        result = {
+            "evaluation": evaluation_result.get("evaluation", []),
+            "totalMarks": evaluation_result.get("totalMarks", 0),
+            "questionPaper": ObjectId(questionPaperId),
+            "answerText": answer_text
         }
 
-        answer_text = ""
-        
-        result = {"evaluation": [], "totalMarks": 0}
-        result["questionPaper"] = ObjectId(questionPaperId)
-        
         if not student:
             sid = db.students.insert_one({"idNumber": student_id, "answers": []}).inserted_id
         else:
@@ -335,6 +443,7 @@ async def evaluate_exam(questionPaperId: str = Form(...), answerSheet: UploadFil
     except HTTPException as e:
         raise e
     except Exception as e:
+        print(f"Upload-answers error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -463,7 +572,13 @@ def get_answer_sheet_details(sheet_id: str, request: Request):
             marks_awarded = ev.get("marksObtained", 0)
             max_marks = q_details.get("maxMarks", 0)
 
-            evaluation_details.append({})
+            evaluation_details.append({
+                "questionNumber": q_num_str,
+                "question": q_details.get("question", ""),
+                "marksAwarded": marks_awarded,
+                "maxMarks": max_marks,
+                "comments": " | ".join(comments) if comments else "No comments"
+            })
 
         response_sheet = {
             "id": str(answer_sheet["_id"]),
