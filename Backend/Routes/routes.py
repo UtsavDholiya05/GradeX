@@ -344,7 +344,16 @@ async def evaluate_exam(questionPaperId: str = Form(...), answerSheet: UploadFil
         if not student_id:
             raise HTTPException(status_code=400, detail="Filename must begin with a student ID")
 
+        # Look for existing student - also check for old records with untrimmed IDs
         student = db.students.find_one({"idNumber": student_id})
+        # Also check for old records with whitespace variants (from legacy code)
+        if not student:
+            student = db.students.find_one({"idNumber": {"$regex": f"^\\s*{re.escape(student_id)}\\s*$"}})
+            if student:
+                # Fix the old student's idNumber to the trimmed version
+                db.students.update_one({"_id": student["_id"]}, {"$set": {"idNumber": student_id}})
+                print(f"Fixed old student idNumber from '{student['idNumber']}' to '{student_id}'")
+
         if student:
             already = db.answer_sheets.find_one({
                 "student": student["_id"],
@@ -365,6 +374,7 @@ async def evaluate_exam(questionPaperId: str = Form(...), answerSheet: UploadFil
                 print(f"Deleted old answer sheet {old_aid} for re-evaluation")
 
 
+
         # --- Actually read and extract text from the answer sheet PDF ---
         answer_bytes = await answerSheet.read()
         try:
@@ -376,10 +386,30 @@ async def evaluate_exam(questionPaperId: str = Form(...), answerSheet: UploadFil
 
         questions = qp.get("questions", [])
         max_marks = qp.get("maxMarks", 0)
+        qp_text = qp.get("questionPaperText", "")
+        rs_text = qp.get("referenceSheetText", "")
+
+        # If questions are empty but raw text exists, try re-parsing
+        if not questions and (qp_text.strip() or rs_text.strip()):
+            print("Questions array is empty, attempting re-parse from stored text...")
+            try:
+                parsed = parse_question_paper_with_gemini(qp_text, rs_text)
+                if parsed.get("questions"):
+                    questions = parsed["questions"]
+                    max_marks = parsed.get("maxMarks", 0)
+                    # Update the question paper in DB so it's fixed for future
+                    db.question_papers.update_one(
+                        {"_id": ObjectId(questionPaperId)},
+                        {"$set": {"questions": questions, "maxMarks": max_marks}}
+                    )
+                    print(f"Re-parsed successfully: {len(questions)} questions, maxMarks={max_marks}")
+            except Exception as e:
+                print(f"Re-parse failed: {e}")
 
         # --- Build evaluation prompt and call Gemini ---
-        questions_json = json.dumps(questions, indent=2)
-        eval_prompt = f"""You are a strict but fair exam evaluator. Evaluate the student's answers against the question paper and guidelines provided.
+        if questions:
+            questions_json = json.dumps(questions, indent=2)
+            eval_prompt = f"""You are a strict but fair exam evaluator. Evaluate the student's answers against the question paper and guidelines provided.
 
 QUESTION PAPER DETAILS:
 {questions_json}
@@ -392,6 +422,44 @@ For each question in the question paper, evaluate the student's answer and provi
 2. reasonForDeduction: why marks were deducted (empty string if full marks)
 3. reasonForFullMarks: why full marks were given (empty string if not full marks)
 4. improvisationTips: suggestions for improvement
+
+Return ONLY valid JSON in this exact format, no markdown, no code fences:
+{{
+  "evaluation": [
+    {{
+      "questionNumber": "1",
+      "marksObtained": 8,
+      "maxMarks": 10,
+      "reasonForDeduction": "Missing key concept X",
+      "reasonForFullMarks": "",
+      "improvisationTips": "Include more examples"
+    }}
+  ],
+  "totalMarks": 25
+}}
+"""
+        else:
+            # Fallback: use raw text when structured questions are unavailable
+            eval_prompt = f"""You are a strict but fair exam evaluator. You are given the raw text of a question paper, a reference/answer sheet, and a student's answer sheet.
+
+Compare the student's answers against the question paper and reference sheet. Identify each question, evaluate the student's answer, and assign marks.
+
+QUESTION PAPER TEXT:
+{qp_text}
+
+REFERENCE/ANSWER SHEET TEXT:
+{rs_text}
+
+STUDENT'S ANSWER SHEET TEXT:
+{answer_text}
+
+For each question you identify, evaluate the student's answer and provide:
+1. questionNumber: the question number (e.g. "1", "1A", "2")
+2. marksObtained: marks awarded
+3. maxMarks: maximum marks for that question
+4. reasonForDeduction: why marks were deducted (empty string if full marks)
+5. reasonForFullMarks: why full marks were given (empty string if not full marks)
+6. improvisationTips: suggestions for improvement
 
 Return ONLY valid JSON in this exact format, no markdown, no code fences:
 {{
