@@ -40,10 +40,28 @@ def split_pdf_into_pages(pdf_bytes):
 
 def perform_ocr_with_groq(image_bytes):
     try:
-        image_base64 = base64.b64encode(image_bytes)
-        pass
+        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        chat_completion = groq_client.chat.completions.create(
+            model="llama-3.2-11b-vision-preview",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Extract all text from this image. Return only the extracted text, no explanations or additional conversation."},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{image_base64}"
+                            }
+                        }
+                    ]
+                }
+            ]
+        )
+        return chat_completion.choices[0].message.content
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(f'OCR Error : {e}'))
+        print(f"OCR Error: {e}")
+        return ""
 
 
 def clean_json_output(raw_output):
@@ -131,12 +149,30 @@ async def upload_question_paper(request: Request, questionPaper: UploadFile = Fi
                 if paper_entry.get("name") == name:
                     return {"success": False, "message": f"Question paper '{name}' already exists."}
 
-        qp_text = "\n\n".join([perform_ocr_with_groq(p) for p in split_pdf_into_pages(await questionPaper.read())])
-        rs_text = "\n\n".join([perform_ocr_with_groq(p) for p in split_pdf_into_pages(await referenceSheet.read())])
+        # Read PDF bytes
+        qp_bytes = await questionPaper.read()
+        rs_bytes = await referenceSheet.read()
+
+        # Perform OCR — failures are handled gracefully (returns empty string per page)
+        try:
+            qp_pages = split_pdf_into_pages(qp_bytes)
+            qp_text = "\n\n".join([perform_ocr_with_groq(p) for p in qp_pages])
+        except Exception as e:
+            print(f"Question paper OCR failed: {e}")
+            qp_text = ""
+
+        try:
+            rs_pages = split_pdf_into_pages(rs_bytes)
+            rs_text = "\n\n".join([perform_ocr_with_groq(p) for p in rs_pages])
+        except Exception as e:
+            print(f"Reference sheet OCR failed: {e}")
+            rs_text = ""
 
         data = {}
         
         data["name"] = name
+        data["questionPaperText"] = qp_text
+        data["referenceSheetText"] = rs_text
         data["createdOn"] = datetime.datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
         data["studentsAttempted"] = []
 
@@ -150,7 +186,8 @@ async def upload_question_paper(request: Request, questionPaper: UploadFile = Fi
 
         return {"success": True, "message": "Question paper uploaded.", "questionPaperId": str(paper_id)}
     except Exception as e:
-        return HTTPException(status_code=500, detail=str(e))
+        print(f"Upload error: {e}")
+        return {"success": False, "message": f"Upload failed: {str(e)}"}
 
 
 @router.post("/v1/upload-answers")

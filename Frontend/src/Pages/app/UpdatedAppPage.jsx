@@ -67,7 +67,8 @@ function UpdatedAppPage() {
       }
       
     } catch (err) {
-      showToast("An error occurred during the upload.", "error");
+      const errorMsg = err?.response?.data?.detail || err?.response?.data?.message || err?.message || "An error occurred during the upload.";
+      showToast(errorMsg, "error");
     } finally {
       setIsProcessing(false);
       setProcessingStep("");
