@@ -351,7 +351,19 @@ async def evaluate_exam(questionPaperId: str = Form(...), answerSheet: UploadFil
                 "questionPaper": ObjectId(questionPaperId)
             })
             if already:
-                raise HTTPException(status_code=409, detail="This student's answer sheet for this paper is already evaluated.")
+                # Remove old answer sheet and its references so re-evaluation can proceed
+                old_aid = already["_id"]
+                db.answer_sheets.delete_one({"_id": old_aid})
+                db.question_papers.update_one(
+                    {"_id": ObjectId(questionPaperId)},
+                    {"$pull": {"studentsAttempted": old_aid}}
+                )
+                db.students.update_one(
+                    {"_id": student["_id"]},
+                    {"$pull": {"answers": {"answerSheet": old_aid}}}
+                )
+                print(f"Deleted old answer sheet {old_aid} for re-evaluation")
+
 
         # --- Actually read and extract text from the answer sheet PDF ---
         answer_bytes = await answerSheet.read()
@@ -561,8 +573,6 @@ def get_answer_sheet_details(sheet_id: str, request: Request):
         for ev in answer_sheet.get("evaluation", []):
             q_num_str = ev.get("questionNumber")
             q_details = question_map.get(q_num_str)
-            if not q_details:
-                continue
             
             comments = []
             if ev.get("reasonForDeduction"): comments.append(f"Deduction: {ev['reasonForDeduction']}")
@@ -570,11 +580,11 @@ def get_answer_sheet_details(sheet_id: str, request: Request):
             if ev.get("improvisationTips"): comments.append(f"Tips: {ev['improvisationTips']}")
             
             marks_awarded = ev.get("marksObtained", 0)
-            max_marks = q_details.get("maxMarks", 0)
+            max_marks = q_details.get("maxMarks", 0) if q_details else ev.get("maxMarks", 0)
 
             evaluation_details.append({
                 "questionNumber": q_num_str,
-                "question": q_details.get("question", ""),
+                "question": q_details.get("question", "") if q_details else ev.get("question", ""),
                 "marksAwarded": marks_awarded,
                 "maxMarks": max_marks,
                 "comments": " | ".join(comments) if comments else "No comments"

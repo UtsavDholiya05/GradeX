@@ -699,15 +699,38 @@ const Dashboard = () => {
                               <Loader2 size={16} className="animate-spin" /> Loading details...
                             </div>
                           ) : (
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <div className="text-gray-400">Student</div>
-                                <div className="text-white font-semibold">{expandedSheets[sheet.id].studentId || expandedSheets[sheet.id].studentName}</div>
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between pb-2 border-b border-gray-700">
+                                <div>
+                                  <div className="text-gray-400 text-xs">Student</div>
+                                  <div className="text-white font-semibold">{expandedSheets[sheet.id].studentName}</div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-gray-400 text-xs">Total Marks</div>
+                                  <div className="text-white font-bold text-lg">{expandedSheets[sheet.id].totalMarks ?? 'N/A'}</div>
+                                </div>
                               </div>
-                              <div>
-                                <div className="text-gray-400">Marks</div>
-                                <div className="text-white font-semibold">{expandedSheets[sheet.id].totalMarks ?? 'N/A'}</div>
-                              </div>
+                              {expandedSheets[sheet.id].evaluation && expandedSheets[sheet.id].evaluation.length > 0 ? (
+                                <div className="space-y-2">
+                                  {expandedSheets[sheet.id].evaluation.map((ev, idx) => (
+                                    <div key={idx} className="bg-gray-900/60 p-3 rounded-lg">
+                                      <div className="flex items-start justify-between mb-1">
+                                        <div className="font-semibold text-white text-sm">
+                                          Q{ev.questionNumber}: {ev.question || ''}
+                                        </div>
+                                        <div className="text-xs font-bold text-green-400 whitespace-nowrap ml-2">
+                                          {ev.marksAwarded ?? ev.marksObtained ?? 0}/{ev.maxMarks ?? 0}
+                                        </div>
+                                      </div>
+                                      {ev.comments && ev.comments !== "No comments" && (
+                                        <p className="text-gray-400 text-xs mt-1">{ev.comments}</p>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-gray-500 text-xs">No evaluation details available.</p>
+                              )}
                             </div>
                           )}
                         </div>
