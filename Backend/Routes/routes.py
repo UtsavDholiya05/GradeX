@@ -33,6 +33,48 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 genai.configure(api_key=GEMINI_API_KEY)
 
 
+def extract_text_from_pdf(pdf_bytes):
+    """Extract text from PDF using PyMuPDF first, falling back to Gemini Vision for scanned PDFs."""
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    
+    # Step 1: Try PyMuPDF's built-in text extraction (works for digital/text-based PDFs)
+    text_pages = []
+    for i in range(len(doc)):
+        page = doc.load_page(i)
+        text = page.get_text().strip()
+        text_pages.append(text)
+    
+    full_text = "\n\n".join(text_pages)
+    
+    # If we got meaningful text (more than 50 chars), use it directly
+    if len(full_text.strip()) > 50:
+        print(f"PyMuPDF extracted {len(full_text)} chars from {len(doc)} pages")
+        return full_text
+    
+    # Step 2: Fallback for scanned PDFs — use Gemini Vision OCR
+    print(f"PyMuPDF text insufficient ({len(full_text.strip())} chars), using Gemini Vision OCR...")
+    ocr_pages = []
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    
+    for i in range(len(doc)):
+        try:
+            page = doc.load_page(i)
+            pix = page.get_pixmap(dpi=150)
+            image_bytes = pix.tobytes("png")
+            image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+            
+            response = model.generate_content([
+                "Extract all text from this image. Return only the extracted text, no explanations or additional conversation.",
+                {"mime_type": "image/png", "data": image_base64}
+            ])
+            ocr_pages.append(response.text)
+        except Exception as e:
+            print(f"Gemini Vision OCR failed for page {i}: {e}")
+            ocr_pages.append("")
+    
+    return "\n\n".join(ocr_pages)
+
+
 def split_pdf_into_pages(pdf_bytes):
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     return [doc.load_page(i).get_pixmap(dpi=150).tobytes("png") for i in range(len(doc))]
@@ -197,26 +239,27 @@ async def upload_question_paper(request: Request, questionPaper: UploadFile = Fi
         qp_bytes = await questionPaper.read()
         rs_bytes = await referenceSheet.read()
 
-        # Perform OCR — failures are handled gracefully (returns empty string per page)
+        # Extract text from PDFs (PyMuPDF text extraction → Gemini Vision fallback)
         try:
-            qp_pages = split_pdf_into_pages(qp_bytes)
-            qp_text = "\n\n".join([perform_ocr_with_groq(p) for p in qp_pages])
+            qp_text = extract_text_from_pdf(qp_bytes)
+            print(f"Question paper text extracted: {len(qp_text)} chars")
         except Exception as e:
-            print(f"Question paper OCR failed: {e}")
+            print(f"Question paper text extraction failed: {e}")
             qp_text = ""
 
         try:
-            rs_pages = split_pdf_into_pages(rs_bytes)
-            rs_text = "\n\n".join([perform_ocr_with_groq(p) for p in rs_pages])
+            rs_text = extract_text_from_pdf(rs_bytes)
+            print(f"Reference sheet text extracted: {len(rs_text)} chars")
         except Exception as e:
-            print(f"Reference sheet OCR failed: {e}")
+            print(f"Reference sheet text extraction failed: {e}")
             rs_text = ""
 
         # Parse question paper into structured questions using Gemini
         parsed = {"maxMarks": 0, "questions": []}
-        if qp_text:
+        if qp_text.strip():
             try:
                 parsed = parse_question_paper_with_gemini(qp_text, rs_text)
+                print(f"Gemini parsed: maxMarks={parsed.get('maxMarks')}, questions={len(parsed.get('questions', []))}")
             except Exception as e:
                 print(f"Gemini parsing failed: {e}")
 
