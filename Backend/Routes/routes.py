@@ -71,9 +71,53 @@ def clean_json_output(raw_output):
 
 def evaluate_with_gemini(prompt):
     try:
-        pass
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(prompt)
+        return response.text
     except Exception as e:
+        print(f"Gemini API Error: {e}")
         raise RuntimeError(f"Evaluation Error: {e}")
+
+
+def parse_question_paper_with_gemini(qp_text, rs_text):
+    """Use Gemini to parse OCR text into structured questions with marks and guidelines."""
+    prompt = f"""You are given the OCR-extracted text of a question paper and its reference/answer sheet.
+Analyze both and extract a structured JSON with the following format:
+
+{{
+  "maxMarks": <total marks of the paper>,
+  "questions": [
+    {{
+      "qNo": "1" or "1a" etc.,
+      "question": "<the question text>",
+      "maxMarks": <marks for this question>,
+      "guidelines": "<evaluation guidelines based on the reference sheet answer>",
+      "groupId": "<group identifier if this question belongs to an optional group, else null>",
+      "isOptional": <true if the question is part of an optional/choice group, else false>,
+      "optionalCount": <number of questions to attempt from this group, else null>
+    }}
+  ]
+}}
+
+IMPORTANT:
+- Return ONLY valid JSON, no markdown, no explanation, no code fences.
+- If marks are not clearly mentioned for a sub-question, estimate based on total marks.
+- For guidelines, summarize the key points from the reference answer that should be checked during evaluation.
+- If you cannot determine some fields, use reasonable defaults (e.g., guidelines: "Evaluate based on accuracy and completeness").
+
+--- QUESTION PAPER TEXT ---
+{qp_text}
+
+--- REFERENCE/ANSWER SHEET TEXT ---
+{rs_text}
+"""
+    try:
+        result = evaluate_with_gemini(prompt)
+        parsed = clean_json_output(result)
+        return parsed
+    except Exception as e:
+        print(f"Question paper parsing failed: {e}")
+        return {"maxMarks": 0, "questions": []}
 
 
 class SendOTPRequest(BaseModel):
@@ -168,11 +212,21 @@ async def upload_question_paper(request: Request, questionPaper: UploadFile = Fi
             print(f"Reference sheet OCR failed: {e}")
             rs_text = ""
 
+        # Parse question paper into structured questions using Gemini
+        parsed = {"maxMarks": 0, "questions": []}
+        if qp_text:
+            try:
+                parsed = parse_question_paper_with_gemini(qp_text, rs_text)
+            except Exception as e:
+                print(f"Gemini parsing failed: {e}")
+
         data = {}
         
         data["name"] = name
         data["questionPaperText"] = qp_text
         data["referenceSheetText"] = rs_text
+        data["maxMarks"] = parsed.get("maxMarks", 0)
+        data["questions"] = parsed.get("questions", [])
         data["createdOn"] = datetime.datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
         data["studentsAttempted"] = []
 
