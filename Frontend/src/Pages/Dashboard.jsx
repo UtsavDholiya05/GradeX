@@ -663,7 +663,7 @@ const Dashboard = () => {
               initial={{ scale: 0.9, y: 50 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 50 }}
-              className="bg-gray-900 p-8 rounded-2xl shadow-2xl w-full max-w-xl border border-gray-700 relative"
+              className="bg-gray-900 p-8 rounded-2xl shadow-2xl w-full max-w-3xl border border-gray-700 relative"
             >
               <button
                 onClick={() => { setShowCorrectedModal(false); setExpandedSheets({}); }}
@@ -671,12 +671,23 @@ const Dashboard = () => {
               >
                 <X size={20} />
               </button>
-              <h2 className="text-2xl font-bold text-white mb-4">
-                Corrected Answer Sheets for "{selectedCorrectedPaper.name}"
-              </h2>
-              <div className="max-h-[400px] overflow-y-auto scrollbar-hide">
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold text-white mb-2">
+                  Corrected Answer Sheets for "{selectedCorrectedPaper.name}"
+                </h2>
+                <div className="flex items-center gap-4 text-sm text-gray-400">
+                  <span>Max Marks: <span className="text-white font-semibold">{selectedCorrectedPaper.maxMarks ?? 'N/A'}</span></span>
+                  <span>•</span>
+                  <span>Students Evaluated: <span className="text-white font-semibold">{correctedSheets.length}</span></span>
+                </div>
+              </div>
+              <div className="max-h-[500px] overflow-y-auto scrollbar-hide">
                 {correctedSheets.length === 0 ? (
-                  <p className="text-gray-400">No corrected answer sheets found.</p>
+                  <div className="text-center py-12">
+                    <FileText size={48} className="text-gray-600 mx-auto mb-4" />
+                    <p className="text-gray-400">No corrected answer sheets found.</p>
+                    <p className="text-gray-500 text-sm mt-1">Upload answer sheets to evaluate them.</p>
+                  </div>
                 ) : (
                   <ul className="space-y-4">
                     {correctedSheets.map((sheet) => (
@@ -685,51 +696,72 @@ const Dashboard = () => {
                           className="bg-gray-800 p-4 rounded-xl hover:bg-gray-700 transition cursor-pointer"
                           onClick={(e) => { e.stopPropagation(); handleToggleSheetDetails(sheet); }}
                         >
-                        <div className="flex-grow">
-                          <div className="font-bold text-white">{sheet.studentName || sheet.studentId || "Student"}</div>
-                          <div className="text-sm text-gray-300">Submitted: {formatRelativeTime(sheet.submittedOn)}</div>
-                        </div>
-                        <div className="text-white font-semibold">
-                          {sheet.totalMarks != null ? `Marks: ${sheet.totalMarks}` : "Evaluated"}
+                        <div className="flex items-center justify-between">
+                          <div className="flex-grow">
+                            <div className="font-bold text-white">{sheet.studentName || sheet.studentId || "Student"}</div>
+                            <div className="text-sm text-gray-400">Submitted: {formatRelativeTime(sheet.submittedOn)}</div>
+                          </div>
+                          <div className="text-right ml-4">
+                            <div className="text-xs text-gray-400">Score</div>
+                            <div className="text-lg font-bold text-white">
+                              {sheet.totalMarks != null ? (
+                                <>{sheet.totalMarks}<span className="text-gray-500 text-sm font-normal">/{selectedCorrectedPaper.maxMarks ?? '?'}</span></>
+                              ) : (
+                                <span className="text-gray-500 text-sm">Pending</span>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       {expandedSheets[sheet.id] && (
-                        <div className="bg-gray-800/60 p-3 rounded-xl mt-3 text-sm text-gray-300">
+                        <div className="bg-gray-900/60 p-4 rounded-xl mt-4 text-sm text-gray-300 border border-gray-700/50">
                           {loadingSheets.includes(sheet.id) ? (
-                            <div className="flex items-center gap-2 text-gray-400">
-                              <Loader2 size={16} className="animate-spin" /> Loading details...
+                            <div className="flex items-center justify-center gap-2 text-gray-400 py-4">
+                              <Loader2 size={16} className="animate-spin" /> Loading evaluation details...
                             </div>
                           ) : (
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between pb-2 border-b border-gray-700">
+                            <div className="space-y-4">
+                              <div className="flex items-center justify-between pb-3 border-b border-gray-700">
                                 <div>
-                                  <div className="text-gray-400 text-xs">Student</div>
+                                  <div className="text-gray-400 text-xs mb-1">Student</div>
                                   <div className="text-white font-semibold">{expandedSheets[sheet.id].studentName}</div>
                                 </div>
                                 <div className="text-right">
-                                  <div className="text-gray-400 text-xs">Total Marks</div>
-                                  <div className="text-white font-bold text-lg">{expandedSheets[sheet.id].totalMarks ?? 'N/A'}</div>
+                                  <div className="text-gray-400 text-xs mb-1">Total Marks</div>
+                                  <div className="text-2xl font-bold text-white">
+                                    {expandedSheets[sheet.id].totalMarks ?? 'N/A'}
+                                    <span className="text-gray-500 text-sm font-normal">/{selectedCorrectedPaper.maxMarks ?? '?'}</span>
+                                  </div>
                                 </div>
                               </div>
                               {expandedSheets[sheet.id].evaluation && expandedSheets[sheet.id].evaluation.length > 0 ? (
                                 <div className="space-y-2">
+                                  <div className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-2">Question-wise Breakdown</div>
                                   {expandedSheets[sheet.id].evaluation.map((ev, idx) => (
-                                    <div key={idx} className="bg-gray-900/60 p-3 rounded-lg">
+                                    <div key={idx} className="bg-gray-800/80 p-3 rounded-lg">
                                       <div className="flex items-start justify-between mb-1">
-                                        <div className="font-semibold text-white text-sm">
-                                          Q{ev.questionNumber}: {ev.question || ''}
+                                        <div className="font-semibold text-white text-sm flex-grow pr-3">
+                                          Q{ev.questionNumber}{ev.question ? `: ${ev.question}` : ''}
                                         </div>
-                                        <div className="text-xs font-bold text-green-400 whitespace-nowrap ml-2">
+                                        <div className={`text-sm font-bold whitespace-nowrap ml-2 px-2 py-0.5 rounded ${
+                                          (ev.marksAwarded ?? ev.marksObtained ?? 0) === (ev.maxMarks ?? 0)
+                                            ? 'bg-green-500/20 text-green-400'
+                                            : (ev.marksAwarded ?? ev.marksObtained ?? 0) === 0
+                                              ? 'bg-red-500/20 text-red-400'
+                                              : 'bg-yellow-500/20 text-yellow-400'
+                                        }`}>
                                           {ev.marksAwarded ?? ev.marksObtained ?? 0}/{ev.maxMarks ?? 0}
                                         </div>
                                       </div>
                                       {ev.comments && ev.comments !== "No comments" && (
-                                        <p className="text-gray-400 text-xs mt-1">{ev.comments}</p>
+                                        <p className="text-gray-400 text-xs mt-2 leading-relaxed">{ev.comments}</p>
                                       )}
                                     </div>
                                   ))}
                                 </div>
                               ) : (
-                                <p className="text-gray-500 text-xs">No evaluation details available.</p>
+                                <div className="text-center py-4">
+                                  <p className="text-gray-500 text-sm">No question-wise evaluation details available.</p>
+                                </div>
                               )}
                             </div>
                           )}
