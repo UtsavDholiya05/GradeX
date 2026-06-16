@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import * as LucideIcons from "lucide-react";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, FileText, Upload, Plus, Eye, X } from "lucide-react";
+import { Loader2, FileText, Upload, Plus, Eye, X, RefreshCw } from "lucide-react";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -29,6 +29,7 @@ const Dashboard = () => {
   const [expandedSheets, setExpandedSheets] = useState({});
   const [loadingSheets, setLoadingSheets] = useState([]);
   const [stats, setStats] = useState({ totalQuestionPapers: 0, totalAnswerSheetsCorrected: 0 });
+  const [reEvaluating, setReEvaluating] = useState(false);
 
   const navigate = useNavigate();
 
@@ -672,13 +673,32 @@ const Dashboard = () => {
                 <X size={20} />
               </button>
               <div className="mb-6">
-                <h2 className="text-2xl font-bold text-white mb-2">
-                  Corrected Answer Sheets for "{selectedCorrectedPaper.name}"
-                </h2>
-                <div className="flex items-center gap-4 text-sm text-gray-400">
-                  <span>Max Marks: <span className="text-white font-semibold">{selectedCorrectedPaper.maxMarks ?? 'N/A'}</span></span>
-                  <span>•</span>
-                  <span>Students Evaluated: <span className="text-white font-semibold">{correctedSheets.length}</span></span>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h2 className="text-2xl font-bold text-white mb-2">
+                      Corrected Answer Sheets for "{selectedCorrectedPaper.name}"
+                    </h2>
+                    <div className="flex items-center gap-4 text-sm text-gray-400">
+                      <span>Max Marks: <span className="text-white font-semibold">{selectedCorrectedPaper.maxMarks ?? 'N/A'}</span></span>
+                      <span>•</span>
+                      <span>Students Evaluated: <span className="text-white font-semibold">{correctedSheets.length}</span></span>
+                    </div>
+                  </div>
+                  {correctedSheets.length > 0 && (
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={(e) => { e.stopPropagation(); handleReEvaluate(selectedCorrectedPaper.id); }}
+                      disabled={reEvaluating}
+                      className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 ${reEvaluating ? 'bg-gray-700 cursor-not-allowed text-gray-400' : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/30'}`}
+                    >
+                      {reEvaluating ? (
+                        <><Loader2 size={14} className="animate-spin" /> Re-evaluating...</>
+                      ) : (
+                        <><RefreshCw size={14} /> Re-evaluate All</>
+                      )}
+                    </motion.button>
+                  )}
                 </div>
               </div>
               <div className="max-h-[500px] overflow-y-auto scrollbar-hide">

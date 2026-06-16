@@ -107,18 +107,63 @@ def perform_ocr_with_groq(image_bytes):
 
 
 def clean_json_output(raw_output):
-    cleaned = re.sub(r"```json|```", "", raw_output).strip()
-    return json.loads(cleaned)
-
-
-def evaluate_with_gemini(prompt):
+    """Robustly extract and parse JSON from Gemini's response."""
+    if not raw_output or not raw_output.strip():
+        raise ValueError("Empty response from Gemini")
+    
+    # Remove markdown code fences (```json ... ``` or ``` ... ```)
+    cleaned = re.sub(r"```(?:json)?\s*", "", raw_output).strip()
+    cleaned = cleaned.rstrip("`").strip()
+    
+    # Try parsing directly
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        print(f"Gemini API Error: {e}")
-        raise RuntimeError(f"Evaluation Error: {e}")
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+    
+    # Try extracting JSON object from the text
+    json_match = re.search(r'(\{[\s\S]*\})', cleaned)
+    if json_match:
+        try:
+            return json.loads(json_match.group(1))
+        except json.JSONDecodeError:
+            pass
+    
+    raise ValueError(f"Could not parse JSON from response (length={len(raw_output)}): {raw_output[:200]}")
+
+
+def evaluate_with_gemini(prompt, retries=2):
+    """Call Gemini with retry logic."""
+    last_error = None
+    for attempt in range(retries + 1):
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content(prompt)
+            if response.text:
+                return response.text
+            else:
+                print(f"Gemini returned empty response on attempt {attempt + 1}")
+                last_error = RuntimeError("Empty response from Gemini")
+        except Exception as e:
+            print(f"Gemini API Error (attempt {attempt + 1}/{retries + 1}): {e}")
+            last_error = e
+    raise RuntimeError(f"Evaluation Error after {retries + 1} attempts: {last_error}")
+
+
+def extract_max_marks_from_text(qp_text, rs_text):
+    """Try to extract max marks from raw text as a fallback."""
+    combined = (qp_text or "") + " " + (rs_text or "")
+    # Look for patterns like "Max Marks: 15", "Maximum Marks: 50", "Total Marks: 100"
+    patterns = [
+        r'[Mm]ax(?:imum)?\s*[Mm]arks\s*[:\-]\s*(\d+)',
+        r'[Tt]otal\s*[Mm]arks\s*[:\-]\s*(\d+)',
+        r'[Mm]arks\s*[:\-]\s*(\d+)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, combined)
+        if match:
+            return int(match.group(1))
+    return 0
 
 
 def parse_question_paper_with_gemini(qp_text, rs_text):
@@ -146,6 +191,7 @@ IMPORTANT:
 - If marks are not clearly mentioned for a sub-question, estimate based on total marks.
 - For guidelines, summarize the key points from the reference answer that should be checked during evaluation.
 - If you cannot determine some fields, use reasonable defaults (e.g., guidelines: "Evaluate based on accuracy and completeness").
+- maxMarks MUST be the total marks for the entire paper (e.g., 15, 50, 100). Never return 0 if marks are mentioned anywhere.
 
 --- QUESTION PAPER TEXT ---
 {qp_text}
@@ -155,11 +201,28 @@ IMPORTANT:
 """
     try:
         result = evaluate_with_gemini(prompt)
+        print(f"Gemini parse raw response ({len(result)} chars): {result[:300]}")
         parsed = clean_json_output(result)
+        
+        # Validate and fix maxMarks if it came back as 0
+        if parsed.get("maxMarks", 0) == 0:
+            fallback_marks = extract_max_marks_from_text(qp_text, rs_text)
+            if fallback_marks > 0:
+                print(f"Gemini returned maxMarks=0, using regex fallback: {fallback_marks}")
+                parsed["maxMarks"] = fallback_marks
+        
+        # Validate questions were extracted
+        if not parsed.get("questions"):
+            print(f"WARNING: Gemini returned no questions despite text being available")
+        else:
+            print(f"Successfully parsed {len(parsed['questions'])} questions, maxMarks={parsed.get('maxMarks')}")
+        
         return parsed
     except Exception as e:
         print(f"Question paper parsing failed: {e}")
-        return {"maxMarks": 0, "questions": []}
+        # Still try to extract maxMarks from text
+        fallback_marks = extract_max_marks_from_text(qp_text, rs_text)
+        return {"maxMarks": fallback_marks, "questions": []}
 
 
 class SendOTPRequest(BaseModel):
@@ -479,25 +542,42 @@ Return ONLY valid JSON in this exact format, no markdown, no code fences:
         evaluation_result = {"evaluation": [], "totalMarks": 0}
         try:
             raw_eval = evaluate_with_gemini(eval_prompt)
+            print(f"Gemini evaluation raw response ({len(raw_eval)} chars): {raw_eval[:300]}")
             evaluation_result = clean_json_output(raw_eval)
             print(f"Gemini evaluation: totalMarks={evaluation_result.get('totalMarks')}, questions evaluated={len(evaluation_result.get('evaluation', []))}")
         except Exception as e:
             print(f"Gemini evaluation failed: {e}")
-            # Fallback: create empty evaluation entries for each question
-            evaluation_result = {
-                "evaluation": [
-                    {
-                        "questionNumber": q.get("qNo", str(i+1)),
-                        "marksObtained": 0,
-                        "maxMarks": q.get("maxMarks", 0),
-                        "reasonForDeduction": "Evaluation failed - please re-evaluate",
-                        "reasonForFullMarks": "",
-                        "improvisationTips": ""
-                    }
-                    for i, q in enumerate(questions)
-                ],
-                "totalMarks": 0
-            }
+            if questions:
+                # Fallback: create placeholder entries for structured questions
+                evaluation_result = {
+                    "evaluation": [
+                        {
+                            "questionNumber": q.get("qNo", str(i+1)),
+                            "marksObtained": 0,
+                            "maxMarks": q.get("maxMarks", 0),
+                            "reasonForDeduction": "Evaluation failed - please re-evaluate",
+                            "reasonForFullMarks": "",
+                            "improvisationTips": ""
+                        }
+                        for i, q in enumerate(questions)
+                    ],
+                    "totalMarks": 0
+                }
+            else:
+                # No structured questions AND evaluation failed — create a generic entry
+                evaluation_result = {
+                    "evaluation": [
+                        {
+                            "questionNumber": "N/A",
+                            "marksObtained": 0,
+                            "maxMarks": max_marks,
+                            "reasonForDeduction": f"Automated evaluation failed: {str(e)[:100]}. Please re-evaluate this answer sheet.",
+                            "reasonForFullMarks": "",
+                            "improvisationTips": "Re-upload and evaluate this answer sheet."
+                        }
+                    ],
+                    "totalMarks": 0
+                }
 
         # --- Save result to DB ---
         result = {
@@ -524,6 +604,159 @@ Return ONLY valid JSON in this exact format, no markdown, no code fences:
         raise e
     except Exception as e:
         print(f"Upload-answers error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/v1/re-parse-paper/{paper_id}")
+async def re_parse_paper(paper_id: str, request: Request):
+    """Re-parse a question paper and re-evaluate all its answer sheets."""
+    user_id = request.state.user.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        paper_id_obj = ObjectId(paper_id)
+        
+        # Verify user owns this paper
+        user = db.users.find_one({"_id": ObjectId(user_id), "paperHistory.paperId": paper_id_obj})
+        if not user:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        paper = db.question_papers.find_one({"_id": paper_id_obj})
+        if not paper:
+            raise HTTPException(status_code=404, detail="Question paper not found")
+
+        qp_text = paper.get("questionPaperText", "")
+        rs_text = paper.get("referenceSheetText", "")
+
+        if not qp_text.strip() and not rs_text.strip():
+            return {"success": False, "message": "No raw text available to re-parse."}
+
+        # Re-parse questions
+        parsed = parse_question_paper_with_gemini(qp_text, rs_text)
+        questions = parsed.get("questions", [])
+        max_marks = parsed.get("maxMarks", 0)
+
+        # Update the question paper
+        db.question_papers.update_one(
+            {"_id": paper_id_obj},
+            {"$set": {"questions": questions, "maxMarks": max_marks}}
+        )
+
+        # Re-evaluate all answer sheets for this paper
+        answer_sheet_ids = paper.get("studentsAttempted", [])
+        re_evaluated = 0
+        failed = 0
+
+        for sheet_id in answer_sheet_ids:
+            try:
+                sheet = db.answer_sheets.find_one({"_id": sheet_id})
+                if not sheet:
+                    continue
+
+                answer_text = sheet.get("answerText", "")
+                if not answer_text.strip():
+                    continue
+
+                # Build evaluation prompt
+                if questions:
+                    questions_json = json.dumps(questions, indent=2)
+                    eval_prompt = f"""You are a strict but fair exam evaluator. Evaluate the student's answers against the question paper and guidelines provided.
+
+QUESTION PAPER DETAILS:
+{questions_json}
+
+STUDENT'S ANSWER SHEET TEXT:
+{answer_text}
+
+For each question in the question paper, evaluate the student's answer and provide:
+1. marksObtained: marks awarded (0 to maxMarks for that question)
+2. reasonForDeduction: why marks were deducted (empty string if full marks)
+3. reasonForFullMarks: why full marks were given (empty string if not full marks)
+4. improvisationTips: suggestions for improvement
+
+Return ONLY valid JSON in this exact format, no markdown, no code fences:
+{{
+  "evaluation": [
+    {{
+      "questionNumber": "1",
+      "marksObtained": 8,
+      "maxMarks": 10,
+      "reasonForDeduction": "Missing key concept X",
+      "reasonForFullMarks": "",
+      "improvisationTips": "Include more examples"
+    }}
+  ],
+  "totalMarks": 25
+}}
+"""
+                else:
+                    eval_prompt = f"""You are a strict but fair exam evaluator. You are given the raw text of a question paper, a reference/answer sheet, and a student's answer sheet.
+
+Compare the student's answers against the question paper and reference sheet. Identify each question, evaluate the student's answer, and assign marks.
+
+QUESTION PAPER TEXT:
+{qp_text}
+
+REFERENCE/ANSWER SHEET TEXT:
+{rs_text}
+
+STUDENT'S ANSWER SHEET TEXT:
+{answer_text}
+
+For each question you identify, evaluate the student's answer and provide:
+1. questionNumber: the question number (e.g. "1", "1A", "2")
+2. marksObtained: marks awarded
+3. maxMarks: maximum marks for that question
+4. reasonForDeduction: why marks were deducted (empty string if full marks)
+5. reasonForFullMarks: why full marks were given (empty string if not full marks)
+6. improvisationTips: suggestions for improvement
+
+Return ONLY valid JSON in this exact format, no markdown, no code fences:
+{{
+  "evaluation": [
+    {{
+      "questionNumber": "1",
+      "marksObtained": 8,
+      "maxMarks": 10,
+      "reasonForDeduction": "Missing key concept X",
+      "reasonForFullMarks": "",
+      "improvisationTips": "Include more examples"
+    }}
+  ],
+  "totalMarks": 25
+}}
+"""
+
+                raw_eval = evaluate_with_gemini(eval_prompt)
+                evaluation_result = clean_json_output(raw_eval)
+
+                # Update the answer sheet with new evaluation
+                db.answer_sheets.update_one(
+                    {"_id": sheet_id},
+                    {"$set": {
+                        "evaluation": evaluation_result.get("evaluation", []),
+                        "totalMarks": evaluation_result.get("totalMarks", 0)
+                    }}
+                )
+                re_evaluated += 1
+                print(f"Re-evaluated sheet {sheet_id}: totalMarks={evaluation_result.get('totalMarks')}")
+            except Exception as e:
+                failed += 1
+                print(f"Failed to re-evaluate sheet {sheet_id}: {e}")
+
+        return {
+            "success": True,
+            "message": f"Re-parsed paper. {len(questions)} questions found, maxMarks={max_marks}. Re-evaluated {re_evaluated} answer sheets ({failed} failed).",
+            "maxMarks": max_marks,
+            "questionsCount": len(questions),
+            "reEvaluated": re_evaluated,
+            "failed": failed
+        }
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Re-parse error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
