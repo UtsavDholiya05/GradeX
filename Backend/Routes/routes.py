@@ -8,7 +8,7 @@ import json
 import os
 import base64
 import re
-import google.genai as genai
+from google import genai
 from google.genai import types
 from groq import Groq
 import jwt
