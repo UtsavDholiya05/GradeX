@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import * as LucideIcons from "lucide-react";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, FileText, Upload, Plus, Eye, X, RefreshCw } from "lucide-react";
+import { Loader2, FileText, Upload, Plus, Eye, X, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -296,6 +296,28 @@ const Dashboard = () => {
     setReEvaluating(false);
   };
 
+  const handleDeletePaper = async (paperId) => {
+    if (!window.confirm("Are you sure you want to completely delete this question paper and all its evaluations?")) {
+      return;
+    }
+    try {
+      const res = await axios.delete(`/v1/delete-paper/${paperId}`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("institute-auth")}`,
+        },
+      });
+      if (res.data.success) {
+        toast.success("Question paper deleted successfully!");
+        fetchPapers();
+        fetchStats();
+      } else {
+        toast.error(res.data.message || "Failed to delete paper.");
+      }
+    } catch (err) {
+      toast.error("Failed to delete paper: " + (err?.response?.data?.detail || err.message));
+    }
+  };
+
   return (
     <div className="min-h-screen bg-black text-white font-sans">
       <div className="relative z-10 container mx-auto px-4 py-20 md:py-32">
@@ -396,6 +418,14 @@ const Dashboard = () => {
                       className="p-3 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-xl transition-all duration-200"
                     >
                       <Eye size={16} />
+                    </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={(e) => { e.stopPropagation(); handleDeletePaper(paper.id); }}
+                      className="p-3 bg-red-950/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 border border-red-500/20 rounded-xl transition-all duration-200"
+                    >
+                      <Trash2 size={16} />
                     </motion.button>
                   </div>
                 </motion.div>
@@ -759,10 +789,18 @@ const Dashboard = () => {
                             <div className="text-sm text-gray-400">Submitted: {formatRelativeTime(sheet.submittedOn)}</div>
                           </div>
                           <div className="text-right ml-4">
-                            <div className="text-xs text-gray-400">Score</div>
-                            <div className="text-lg font-bold text-white">
+                            <div className="text-xs text-gray-400">Marks Obtained</div>
+                            <div className="text-lg font-bold">
                               {sheet.totalMarks != null ? (
-                                <>{sheet.totalMarks}<span className="text-gray-500 text-sm font-normal">/{selectedCorrectedPaper.maxMarks ?? '?'}</span></>
+                                <span className={
+                                  selectedCorrectedPaper.maxMarks && sheet.totalMarks >= selectedCorrectedPaper.maxMarks * 0.7
+                                    ? 'text-green-400'
+                                    : selectedCorrectedPaper.maxMarks && sheet.totalMarks >= selectedCorrectedPaper.maxMarks * 0.4
+                                      ? 'text-yellow-400'
+                                      : 'text-red-400'
+                                }>
+                                  {sheet.totalMarks}<span className="text-gray-500 text-sm font-normal">/{selectedCorrectedPaper.maxMarks ?? '?'}</span>
+                                </span>
                               ) : (
                                 <span className="text-gray-500 text-sm">Pending</span>
                               )}
@@ -782,34 +820,64 @@ const Dashboard = () => {
                                     <div className="text-gray-400 text-xs mb-1">Student</div>
                                     <div className="text-white font-semibold">{expandedSheets[sheet.id].studentName}</div>
                                   </div>
-                                  <div className="text-right">
-                                    <div className="text-gray-400 text-xs mb-1">Total Marks</div>
-                                    <div className="text-2xl font-bold text-white">
-                                      {expandedSheets[sheet.id].totalMarks ?? 'N/A'}
-                                      <span className="text-gray-500 text-sm font-normal">/{selectedCorrectedPaper.maxMarks ?? '?'}</span>
+                                  <div className="flex gap-6">
+                                    <div className="text-center">
+                                      <div className="text-gray-400 text-xs mb-1">Max Marks</div>
+                                      <div className="text-xl font-bold text-gray-300">
+                                        {selectedCorrectedPaper.maxMarks ?? 'N/A'}
+                                      </div>
+                                    </div>
+                                    <div className="text-center">
+                                      <div className="text-gray-400 text-xs mb-1">Marks Obtained</div>
+                                      <div className={`text-2xl font-bold ${
+                                        selectedCorrectedPaper.maxMarks && (expandedSheets[sheet.id].totalMarks ?? 0) >= selectedCorrectedPaper.maxMarks * 0.7
+                                          ? 'text-green-400'
+                                          : selectedCorrectedPaper.maxMarks && (expandedSheets[sheet.id].totalMarks ?? 0) >= selectedCorrectedPaper.maxMarks * 0.4
+                                            ? 'text-yellow-400'
+                                            : 'text-red-400'
+                                      }`}>
+                                        {expandedSheets[sheet.id].totalMarks ?? 'N/A'}
+                                        <span className="text-gray-500 text-sm font-normal">/{selectedCorrectedPaper.maxMarks ?? '?'}</span>
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
                                 {expandedSheets[sheet.id].evaluation && expandedSheets[sheet.id].evaluation.length > 0 ? (
-                                  <div className="space-y-2">
+                                  <div className="space-y-3">
                                     <div className="text-xs text-gray-400 font-semibold uppercase tracking-wider mb-2">Question-wise Breakdown</div>
                                     {expandedSheets[sheet.id].evaluation.map((ev, idx) => (
-                                      <div key={idx} className="bg-gray-800/80 p-3 rounded-lg">
-                                        <div className="flex items-start justify-between mb-1">
+                                      <div key={idx} className="bg-gray-800/80 p-4 rounded-lg space-y-2">
+                                        <div className="flex items-start justify-between">
                                           <div className="font-semibold text-white text-sm flex-grow pr-3">
                                             Q{ev.questionNumber}{ev.question ? `: ${ev.question}` : ''}
                                           </div>
-                                          <div className={`text-sm font-bold whitespace-nowrap ml-2 px-2 py-0.5 rounded ${(ev.marksAwarded ?? ev.marksObtained ?? 0) === (ev.maxMarks ?? 0)
-                                              ? 'bg-green-500/20 text-green-400'
+                                          <div className={`text-sm font-bold whitespace-nowrap ml-2 px-3 py-1 rounded-lg ${(ev.marksAwarded ?? ev.marksObtained ?? 0) === (ev.maxMarks ?? 0)
+                                              ? 'bg-green-500/20 text-green-400 border border-green-500/30'
                                               : (ev.marksAwarded ?? ev.marksObtained ?? 0) === 0
-                                                ? 'bg-red-500/20 text-red-400'
-                                                : 'bg-yellow-500/20 text-yellow-400'
+                                                ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                                : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
                                             }`}>
                                             {ev.marksAwarded ?? ev.marksObtained ?? 0}/{ev.maxMarks ?? 0}
                                           </div>
                                         </div>
                                         {ev.comments && ev.comments !== "No comments" && (
-                                          <p className="text-gray-400 text-xs mt-2 leading-relaxed">{ev.comments}</p>
+                                          <div className="space-y-1.5 mt-2 pl-2 border-l-2 border-gray-700">
+                                            {ev.comments.split(' | ').map((comment, cIdx) => {
+                                              const isDeduction = comment.startsWith('Deduction:');
+                                              const isFullMarks = comment.startsWith('Full Marks:');
+                                              const isTips = comment.startsWith('Tips:');
+                                              return (
+                                                <p key={cIdx} className={`text-xs leading-relaxed ${
+                                                  isDeduction ? 'text-red-400' : isFullMarks ? 'text-green-400' : isTips ? 'text-blue-400' : 'text-gray-400'
+                                                }`}>
+                                                  {isDeduction && <span className="font-semibold">⚠ </span>}
+                                                  {isFullMarks && <span className="font-semibold">✓ </span>}
+                                                  {isTips && <span className="font-semibold">💡 </span>}
+                                                  {comment}
+                                                </p>
+                                              );
+                                            })}
+                                          </div>
                                         )}
                                       </div>
                                     ))}

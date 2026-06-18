@@ -1,4 +1,5 @@
 import datetime
+import time
 import random
 from fastapi import APIRouter, Form, HTTPException, UploadFile, File, Request
 from bson import ObjectId
@@ -34,8 +35,37 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 
+def _gemini_ocr_page(image_bytes, page_index, max_retries=3):
+    """Try Gemini Vision OCR for a single page with retry + exponential backoff for 429 errors."""
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[
+                    "Extract all text from this image. Return only the extracted text, no explanations or additional conversation.",
+                    types.Part.from_bytes(data=image_bytes, mime_type="image/png")
+                ]
+            )
+            return response.text
+        except Exception as e:
+            error_str = str(e)
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                # Parse retry delay from error if available
+                retry_match = re.search(r'retryDelay.*?(\d+)', error_str)
+                wait_time = int(retry_match.group(1)) + 2 if retry_match else (attempt + 1) * 15
+                if attempt < max_retries - 1:
+                    print(f"Gemini rate limited on page {page_index}, waiting {wait_time}s before retry {attempt + 2}/{max_retries}...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"Gemini rate limit exhausted for page {page_index} after {max_retries} retries")
+                    raise  # Let caller handle fallback
+            else:
+                print(f"Gemini Vision OCR non-retryable error for page {page_index}: {e}")
+                raise
+
+
 def extract_text_from_pdf(pdf_bytes):
-    """Extract text from PDF using PyMuPDF first, falling back to Gemini Vision for scanned PDFs."""
+    """Extract text from PDF using PyMuPDF first, falling back to Gemini Vision then Groq Vision for scanned PDFs."""
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     
     # Step 1: Try PyMuPDF's built-in text extraction (works for digital/text-based PDFs)
@@ -52,27 +82,50 @@ def extract_text_from_pdf(pdf_bytes):
         print(f"PyMuPDF extracted {len(full_text)} chars from {len(doc)} pages")
         return full_text
     
-    # Step 2: Fallback for scanned PDFs — use Gemini Vision OCR
-    print(f"PyMuPDF text insufficient ({len(full_text.strip())} chars), using Gemini Vision OCR...")
+    # Step 2: Fallback for scanned PDFs — try Gemini Vision OCR, then Groq Vision
+    print(f"PyMuPDF text insufficient ({len(full_text.strip())} chars), using Vision OCR...")
     ocr_pages = []
+    gemini_exhausted = False  # Once Gemini quota is hit, skip it for remaining pages
     
     for i in range(len(doc)):
+        page = doc.load_page(i)
+        pix = page.get_pixmap(dpi=150)
+        image_bytes = pix.tobytes("png")
+        
+        page_text = ""
+        
+        # Try Gemini first (unless quota already exhausted for this batch)
+        if not gemini_exhausted:
+            try:
+                page_text = _gemini_ocr_page(image_bytes, i)
+                if page_text:
+                    ocr_pages.append(page_text)
+                    # Small delay between pages to be respectful of rate limits
+                    if i < len(doc) - 1:
+                        time.sleep(3)
+                    continue
+            except Exception as e:
+                error_str = str(e)
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                    gemini_exhausted = True
+                    print(f"Gemini quota exhausted, switching to Groq Vision for remaining pages...")
+                else:
+                    print(f"Gemini Vision failed for page {i}: {e}")
+        
+        # Fallback to Groq Vision OCR
         try:
-            page = doc.load_page(i)
-            pix = page.get_pixmap(dpi=150)
-            image_bytes = pix.tobytes("png")
-            
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[
-                    "Extract all text from this image. Return only the extracted text, no explanations or additional conversation.",
-                    types.Part.from_bytes(data=image_bytes, mime_type="image/png")
-                ]
-            )
-            ocr_pages.append(response.text)
-        except Exception as e:
-            print(f"Gemini Vision OCR failed for page {i}: {e}")
-            ocr_pages.append("")
+            page_text = perform_ocr_with_groq(image_bytes)
+            if page_text:
+                print(f"Groq Vision OCR succeeded for page {i}: {len(page_text)} chars")
+        except Exception as e2:
+            print(f"Groq Vision OCR also failed for page {i}: {e2}")
+            page_text = ""
+        
+        ocr_pages.append(page_text)
+        
+        # Small delay between pages
+        if i < len(doc) - 1:
+            time.sleep(1)
     
     return "\n\n".join(ocr_pages)
 
@@ -86,7 +139,7 @@ def perform_ocr_with_groq(image_bytes):
     try:
         image_base64 = base64.b64encode(image_bytes).decode('utf-8')
         chat_completion = groq_client.chat.completions.create(
-            model="llama-3.2-11b-vision-preview",
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
             messages=[
                 {
                     "role": "user",
@@ -135,8 +188,10 @@ def clean_json_output(raw_output):
 
 
 def evaluate_with_gemini(prompt, retries=2):
-    """Call Gemini with retry logic."""
+    """Call Gemini with retry logic. Falls back to Groq LLM if Gemini quota is exhausted."""
     last_error = None
+    gemini_rate_limited = False
+    
     for attempt in range(retries + 1):
         try:
             response = client.models.generate_content(
@@ -149,9 +204,40 @@ def evaluate_with_gemini(prompt, retries=2):
                 print(f"Gemini returned empty response on attempt {attempt + 1}")
                 last_error = RuntimeError("Empty response from Gemini")
         except Exception as e:
+            error_str = str(e)
             print(f"Gemini API Error (attempt {attempt + 1}/{retries + 1}): {e}")
             last_error = e
-    raise RuntimeError(f"Evaluation Error after {retries + 1} attempts: {last_error}")
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                gemini_rate_limited = True
+                if attempt < retries:
+                    sleep_time = (attempt + 1) * 3
+                    print(f"Rate limited. Waiting {sleep_time}s before retrying...")
+                    time.sleep(sleep_time)
+            else:
+                if attempt < retries:
+                    time.sleep((attempt + 1) * 2)
+    
+    # Fallback to Groq LLM when Gemini is exhausted
+    if gemini_rate_limited:
+        print("Gemini quota exhausted, falling back to Groq LLM...")
+        try:
+            chat_completion = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": "You are a precise exam evaluator. Always return valid JSON as requested. No markdown fences, no explanations."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=4096
+            )
+            result = chat_completion.choices[0].message.content
+            if result:
+                print(f"Groq LLM fallback succeeded ({len(result)} chars)")
+                return result
+        except Exception as groq_err:
+            print(f"Groq LLM fallback also failed: {groq_err}")
+    
+    raise RuntimeError(f"Evaluation Error after {retries + 1} attempts (Groq fallback {'attempted' if gemini_rate_limited else 'skipped'}): {last_error}")
 
 
 def extract_max_marks_from_text(qp_text, rs_text):
@@ -966,4 +1052,48 @@ def get_institute_stats(request: Request):
             "totalAnswerSheetsCorrected": total_answer_sheets_corrected
         }
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/v1/delete-paper/{paper_id}")
+async def delete_question_paper(paper_id: str, request: Request):
+    user_id = request.state.user.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        paper_id_obj = ObjectId(paper_id)
+        
+        # Verify user owns this paper
+        user = db.users.find_one({"_id": ObjectId(user_id), "paperHistory.paperId": paper_id_obj})
+        if not user:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        paper = db.question_papers.find_one({"_id": paper_id_obj})
+        if not paper:
+            raise HTTPException(status_code=404, detail="Question paper not found")
+
+        # 1. Retrieve associated answer sheets
+        answer_sheets = paper.get("studentsAttempted", [])
+        if answer_sheets:
+            # Delete answer sheets
+            db.answer_sheets.delete_many({"_id": {"$in": answer_sheets}})
+            # Pull references from students' answers array
+            db.students.update_many(
+                {},
+                {"$pull": {"answers": {"answerSheet": {"$in": answer_sheets}}}}
+            )
+
+        # 2. Update user paperHistory
+        db.users.update_many(
+            {},
+            {"$pull": {"paperHistory": {"paperId": paper_id_obj}}}
+        )
+
+        # 3. Delete the paper
+        db.question_papers.delete_one({"_id": paper_id_obj})
+
+        return {"success": True, "message": "Question paper deleted successfully."}
+    except Exception as e:
+        print(f"Delete paper error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
