@@ -20,14 +20,14 @@ function UpdatedAppPage() {
   const [existingPapers, setExistingPapers] = useState([]);
   const [isLoadingPapers, setIsLoadingPapers] = useState(false);
   const [toast, setToast] = useState({ show: false, message: "", type: "info" });
-  
-  const { 
-    uploadProgress: progress, 
-    uploadStatus: processingStep, 
+
+  const {
+    uploadProgress: progress,
+    uploadStatus: processingStep,
     isUploading,
-    uploadSingleFile, 
-    uploadMultipleFiles, 
-    setUploadStatus: setProcessingStep 
+    uploadSingleFile,
+    uploadMultipleFiles,
+    setUploadStatus: setProcessingStep
   } = useFileUpload();
 
   const showToast = (message, type = "info") => {
@@ -46,18 +46,18 @@ function UpdatedAppPage() {
     formData.append("referenceSheet", referenceSheet);
 
     setIsProcessing(true);
-    
+
     try {
-      const headers = { 
+      const headers = {
         "Authorization": `Bearer ${localStorage.getItem("institute-auth")}`
       };
-      
+
       const response = await uploadSingleFile(
-        "/v1/upload", 
+        "/v1/upload",
         formData,
         headers
       );
-      
+
       if (response.data.success) {
         setQuestionPaperId(response.data.questionPaperId);
         setShowAnswerUpload(true);
@@ -65,7 +65,7 @@ function UpdatedAppPage() {
       } else {
         showToast(response.data.message || "Failed to upload question paper.", "error");
       }
-      
+
     } catch (err) {
       const errorMsg = err?.response?.data?.detail || err?.response?.data?.message || err?.message || "An error occurred during the upload.";
       showToast(errorMsg, "error");
@@ -82,19 +82,19 @@ function UpdatedAppPage() {
     }
 
     setIsProcessing(true);
-    
+
     try {
-      const headers = { 
+      const headers = {
         "Authorization": `Bearer ${localStorage.getItem("institute-auth")}`
       };
-      
+
       const prepareFormData = (file) => {
         const formData = new FormData();
         formData.append("questionPaperId", questionPaperId);
         formData.append("answerSheet", file);
         return formData;
       };
-      
+
       await uploadMultipleFiles(
         "/v1/upload-answers",
         answerSheets,
@@ -104,7 +104,7 @@ function UpdatedAppPage() {
           showToast(`Processed ${file.name} (${index + 1}/${answerSheets.length})`, "success");
         }
       );
-      
+
       setShowFinalModal(true);
       showToast("All answer sheets processed successfully!", "success");
     } catch (err) {
@@ -127,7 +127,7 @@ function UpdatedAppPage() {
           "Authorization": `Bearer ${localStorage.getItem("institute-auth")}`
         }
       });
-      
+
       setExistingPapers(response.data.papers || []);
       setShowExistingPapers(true);
     } catch (err) {
@@ -164,7 +164,7 @@ function UpdatedAppPage() {
 
       <div className="relative z-10">
         {!showAnswerUpload && !showExistingPapers && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="container mx-auto py-12 px-4"
@@ -178,7 +178,7 @@ function UpdatedAppPage() {
                 <Upload className="h-4 w-4 text-white" />
                 <span className="text-sm text-gray-300">Upload & Evaluate</span>
               </motion.div>
-              
+
               <h1 className="text-4xl md:text-6xl font-bold text-white mb-6">
                 Upload Question Paper
               </h1>
@@ -215,17 +215,14 @@ function UpdatedAppPage() {
                           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                           onChange={(e) => setQuestionPaper(e.target.files[0])}
                         />
-                        <div className={`border-2 border-dashed rounded-xl p-8 text-center transition-all ${
-                          questionPaper 
-                            ? 'border-green-600/50 bg-green-600/5' 
+                        <div className={`border-2 border-dashed rounded-xl p-8 text-center transition-all ${questionPaper
+                            ? 'border-green-600/50 bg-green-600/5'
                             : 'border-gray-600 hover:border-blue-500/50 hover:bg-blue-500/5'
-                        }`}>
-                          <Upload className={`w-12 h-12 mx-auto mb-4 ${
-                            questionPaper ? 'text-green-400' : 'text-gray-400'
-                          }`} />
-                          <p className={`mb-2 font-medium ${
-                            questionPaper ? 'text-green-300' : 'text-gray-300'
                           }`}>
+                          <Upload className={`w-12 h-12 mx-auto mb-4 ${questionPaper ? 'text-green-400' : 'text-gray-400'
+                            }`} />
+                          <p className={`mb-2 font-medium ${questionPaper ? 'text-green-300' : 'text-gray-300'
+                            }`}>
                             {questionPaper ? questionPaper.name : "Drag and drop or click to browse"}
                           </p>
                           <p className="text-sm text-gray-500">PDF files only, up to 10MB</p>
@@ -274,17 +271,14 @@ function UpdatedAppPage() {
                           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                           onChange={(e) => setReferenceSheet(e.target.files[0])}
                         />
-                        <div className={`border-2 border-dashed rounded-xl p-8 text-center transition-all ${
-                          referenceSheet 
-                            ? 'border-green-600/50 bg-green-600/5' 
+                        <div className={`border-2 border-dashed rounded-xl p-8 text-center transition-all ${referenceSheet
+                            ? 'border-green-600/50 bg-green-600/5'
                             : 'border-gray-600 hover:border-purple-500/50 hover:bg-purple-500/5'
-                        }`}>
-                          <Upload className={`w-12 h-12 mx-auto mb-4 ${
-                            referenceSheet ? 'text-green-400' : 'text-gray-400'
-                          }`} />
-                          <p className={`mb-2 font-medium ${
-                            referenceSheet ? 'text-green-300' : 'text-gray-300'
                           }`}>
+                          <Upload className={`w-12 h-12 mx-auto mb-4 ${referenceSheet ? 'text-green-400' : 'text-gray-400'
+                            }`} />
+                          <p className={`mb-2 font-medium ${referenceSheet ? 'text-green-300' : 'text-gray-300'
+                            }`}>
                             {referenceSheet ? referenceSheet.name : "Drag and drop or click to browse"}
                           </p>
                           <p className="text-sm text-gray-500">PDF files only, up to 10MB</p>
@@ -308,7 +302,7 @@ function UpdatedAppPage() {
                 </motion.div>
               </div>
 
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.4 }}
@@ -322,9 +316,9 @@ function UpdatedAppPage() {
                   <Upload className="w-5 h-5" />
                   Upload & Continue
                 </button>
-                
+
                 <div className="text-gray-400 text-sm">or</div>
-                
+
                 <button
                   onClick={handleShowExistingPapers}
                   className="px-8 py-4 text-lg min-w-[250px] border border-gray-600 hover:border-white rounded-lg transition-all flex items-center justify-center gap-2"
@@ -384,7 +378,7 @@ function UpdatedAppPage() {
                     <X className="w-5 h-5" />
                   </button>
                 </div>
-                
+
                 <div className="p-6">
                   {isLoadingPapers ? (
                     <div className="flex items-center justify-center py-12">
@@ -441,7 +435,7 @@ function UpdatedAppPage() {
         </AnimatePresence>
 
         {showAnswerUpload && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="container mx-auto py-12 px-4"
@@ -464,7 +458,7 @@ function UpdatedAppPage() {
                   <CheckCircle2 className="h-4 w-4 text-green-400" />
                   <span className="text-sm text-green-300">Question Paper Ready</span>
                 </motion.div>
-                
+
                 <h1 className="text-4xl md:text-6xl font-bold text-white mb-6">
                   Upload Answer Sheets
                 </h1>
@@ -483,18 +477,15 @@ function UpdatedAppPage() {
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                       onChange={(e) => setAnswerSheets(Array.from(e.target.files))}
                     />
-                    <div className={`border-2 border-dashed rounded-xl p-12 text-center transition-all ${
-                      answerSheets.length > 0 
-                        ? 'border-green-600/50 bg-green-600/5' 
+                    <div className={`border-2 border-dashed rounded-xl p-12 text-center transition-all ${answerSheets.length > 0
+                        ? 'border-green-600/50 bg-green-600/5'
                         : 'border-gray-600 hover:border-blue-500/50 hover:bg-blue-500/5'
-                    }`}>
-                      <Upload className={`w-16 h-16 mx-auto mb-6 ${
-                        answerSheets.length > 0 ? 'text-green-400' : 'text-gray-400'
-                      }`} />
-                      <h3 className={`text-xl font-semibold mb-2 ${
-                        answerSheets.length > 0 ? 'text-green-300' : 'text-white'
                       }`}>
-                        {answerSheets.length > 0 
+                      <Upload className={`w-16 h-16 mx-auto mb-6 ${answerSheets.length > 0 ? 'text-green-400' : 'text-gray-400'
+                        }`} />
+                      <h3 className={`text-xl font-semibold mb-2 ${answerSheets.length > 0 ? 'text-green-300' : 'text-white'
+                        }`}>
+                        {answerSheets.length > 0
                           ? `${answerSheets.length} Answer Sheet${answerSheets.length > 1 ? 's' : ''} Selected`
                           : 'Drop Answer Sheets Here'
                         }
@@ -586,27 +577,27 @@ function UpdatedAppPage() {
                   <div className="w-20 h-20 bg-blue-600/20 border border-blue-600/30 rounded-full flex items-center justify-center mx-auto mb-6">
                     <Loader2 className="w-10 h-10 text-blue-400 animate-spin" />
                   </div>
-                  
+
                   <h2 className="text-2xl font-bold text-white mb-2">
                     Processing Files
                   </h2>
                   <p className="text-gray-400 mb-6">
                     {processingStep || "Please wait while we process your files..."}
                   </p>
-                  
+
                   <div className="space-y-3">
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-400">Progress</span>
                       <span className="text-white font-semibold">{progress}%</span>
                     </div>
                     <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-blue-600 transition-all duration-300 ease-in-out" 
+                      <div
+                        className="h-full bg-blue-600 transition-all duration-300 ease-in-out"
                         style={{ width: `${progress}%` }}
                       ></div>
                     </div>
                   </div>
-                  
+
                   <p className="text-xs text-gray-500 mt-4">
                     Please don't close this window during processing
                   </p>
@@ -634,15 +625,15 @@ function UpdatedAppPage() {
                   <div className="w-20 h-20 bg-green-600/20 border border-green-600/30 rounded-full flex items-center justify-center mx-auto mb-6">
                     <CheckCircle2 className="w-10 h-10 text-green-400" />
                   </div>
-                  
+
                   <h2 className="text-3xl font-bold text-white mb-4">
                     Processing Complete!
                   </h2>
                   <p className="text-gray-300 mb-8 leading-relaxed">
-                    All {answerSheets.length} answer sheet{answerSheets.length > 1 ? 's have' : ' has'} been successfully evaluated. 
+                    All {answerSheets.length} answer sheet{answerSheets.length > 1 ? 's have' : ' has'} been successfully evaluated.
                     You can now view the results and analytics in your dashboard.
                   </p>
-                  
+
                   <div className="space-y-3">
                     <button
                       onClick={() => {
