@@ -259,6 +259,42 @@ const Dashboard = () => {
     }
   };
 
+  const handleReEvaluate = async (paperId) => {
+    setReEvaluating(true);
+    try {
+      const res = await axios.post(`/v1/re-parse-paper/${paperId}`, {}, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("institute-auth")}`,
+        },
+      });
+      if (res.data.success) {
+        toast.success(res.data.message || "Re-evaluation complete!");
+        // Refresh the data
+        await fetchPapers();
+        // Refresh corrected sheets view
+        const updatedPapers = (await axios.get("/v1/get-all-question-paper-details", {
+          headers: { Authorization: `Bearer ${localStorage.getItem("institute-auth")}` },
+        })).data.papers || [];
+        const updatedPaper = updatedPapers.find(p => p.id === paperId);
+        if (updatedPaper) {
+          setSelectedCorrectedPaper(updatedPaper);
+        }
+        // Refresh corrected sheets list
+        const sheetsRes = await axios.get(`/v1/get-answer-sheets/${paperId}`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem("institute-auth")}` },
+        });
+        setCorrectedSheets(sheetsRes.data.answerSheets || []);
+        setExpandedSheets({});
+        fetchStats();
+      } else {
+        toast.error(res.data.message || "Re-evaluation failed.");
+      }
+    } catch (err) {
+      toast.error("Re-evaluation failed: " + (err?.response?.data?.detail || err.message));
+    }
+    setReEvaluating(false);
+  };
+
   return (
     <div className="min-h-screen bg-black text-white font-sans">
       <div className="relative z-10 container mx-auto px-4 py-20 md:py-32">

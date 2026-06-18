@@ -8,7 +8,8 @@ import json
 import os
 import base64
 import re
-import google.generativeai as genai
+import google.genai as genai
+from google.genai import types
 from groq import Groq
 import jwt
 from pydantic import BaseModel
@@ -30,7 +31,7 @@ SMTP_USER = os.getenv("USER")
 SMTP_PASSWORD = os.getenv("PASS")
 
 groq_client = Groq(api_key=GROQ_API_KEY)
-genai.configure(api_key=GEMINI_API_KEY)
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 def extract_text_from_pdf(pdf_bytes):
@@ -54,19 +55,20 @@ def extract_text_from_pdf(pdf_bytes):
     # Step 2: Fallback for scanned PDFs — use Gemini Vision OCR
     print(f"PyMuPDF text insufficient ({len(full_text.strip())} chars), using Gemini Vision OCR...")
     ocr_pages = []
-    model = genai.GenerativeModel("gemini-1.5-flash")
     
     for i in range(len(doc)):
         try:
             page = doc.load_page(i)
             pix = page.get_pixmap(dpi=150)
             image_bytes = pix.tobytes("png")
-            image_base64 = base64.b64encode(image_bytes).decode('utf-8')
             
-            response = model.generate_content([
-                "Extract all text from this image. Return only the extracted text, no explanations or additional conversation.",
-                {"mime_type": "image/png", "data": image_base64}
-            ])
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[
+                    "Extract all text from this image. Return only the extracted text, no explanations or additional conversation.",
+                    types.Part.from_bytes(data=image_bytes, mime_type="image/png")
+                ]
+            )
             ocr_pages.append(response.text)
         except Exception as e:
             print(f"Gemini Vision OCR failed for page {i}: {e}")
@@ -137,8 +139,10 @@ def evaluate_with_gemini(prompt, retries=2):
     last_error = None
     for attempt in range(retries + 1):
         try:
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            response = model.generate_content(prompt)
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt
+            )
             if response.text:
                 return response.text
             else:
@@ -266,25 +270,31 @@ async def test_pipeline():
     except Exception as e:
         results["pymupdf"] = f"FAILED: {str(e)}"
     
-    # Test 2: Gemini model instantiation
+    # Test 2: Gemini model client connection check
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        results["gemini_model"] = f"OK - model created"
+        if client is not None:
+            results["gemini_model"] = "OK - client initialized"
+        else:
+            results["gemini_model"] = "FAILED: client is None"
     except Exception as e:
         results["gemini_model"] = f"FAILED: {str(e)}"
     
     # Test 3: Gemini simple text generation
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content("Reply with exactly: GEMINI_OK")
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents="Reply with exactly: GEMINI_OK"
+        )
         results["gemini_text"] = f"OK - response: {response.text[:100]}"
     except Exception as e:
         results["gemini_text"] = f"FAILED: {str(e)}"
     
     # Test 4: Gemini JSON parsing
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content('Return ONLY this JSON, nothing else: {"maxMarks": 50, "questions": [{"qNo": "1", "question": "Test question", "maxMarks": 10, "guidelines": "Test"}]}')
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents='Return ONLY this JSON, nothing else: {"maxMarks": 50, "questions": [{"qNo": "1", "question": "Test question", "maxMarks": 10, "guidelines": "Test"}]}'
+        )
         raw = response.text
         parsed = clean_json_output(raw)
         results["gemini_parse"] = f"OK - parsed maxMarks: {parsed.get('maxMarks')}, raw length: {len(raw)}"
