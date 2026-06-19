@@ -1097,3 +1097,185 @@ async def delete_question_paper(paper_id: str, request: Request):
     except Exception as e:
         print(f"Delete paper error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class ReEvaluateSheetRequest(BaseModel):
+    instruction: str = ""
+
+
+@router.delete("/v1/delete-answer-sheet/{sheet_id}")
+async def delete_answer_sheet(sheet_id: str, request: Request):
+    user_id = request.state.user.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        sheet_id_obj = ObjectId(sheet_id)
+        sheet = db.answer_sheets.find_one({"_id": sheet_id_obj})
+        if not sheet:
+            raise HTTPException(status_code=404, detail="Answer sheet not found")
+
+        paper_id_obj = sheet["questionPaper"]
+        
+        # Verify user owns this paper
+        user = db.users.find_one({"_id": ObjectId(user_id), "paperHistory.paperId": paper_id_obj})
+        if not user:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        # 1. Pull the sheet ID from the question paper's studentsAttempted array
+        db.question_papers.update_one(
+            {"_id": paper_id_obj},
+            {"$pull": {"studentsAttempted": sheet_id_obj}}
+        )
+
+        # 2. Pull the answer reference from students' answers array
+        db.students.update_one(
+            {"_id": sheet["student"]},
+            {"$pull": {"answers": {"answerSheet": sheet_id_obj}}}
+        )
+
+        # 3. Delete the sheet itself
+        db.answer_sheets.delete_one({"_id": sheet_id_obj})
+
+        return {"success": True, "message": "Answer sheet deleted successfully."}
+    except Exception as e:
+        print(f"Delete answer sheet error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/v1/re-evaluate-answer-sheet/{sheet_id}")
+async def re_evaluate_answer_sheet(sheet_id: str, request: Request, payload: ReEvaluateSheetRequest):
+    user_id = request.state.user.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        sheet_id_obj = ObjectId(sheet_id)
+        sheet = db.answer_sheets.find_one({"_id": sheet_id_obj})
+        if not sheet:
+            raise HTTPException(status_code=404, detail="Answer sheet not found")
+
+        paper_id_obj = sheet["questionPaper"]
+        
+        # Verify user owns this paper
+        user = db.users.find_one({"_id": ObjectId(user_id), "paperHistory.paperId": paper_id_obj})
+        if not user:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        paper = db.question_papers.find_one({"_id": paper_id_obj})
+        if not paper:
+            raise HTTPException(status_code=404, detail="Question paper not found")
+
+        questions = paper.get("questions", [])
+        qp_text = paper.get("questionPaperText", "")
+        rs_text = paper.get("referenceSheetText", "")
+        answer_text = sheet.get("answerText", "")
+
+        if not answer_text or not answer_text.strip():
+            raise HTTPException(status_code=400, detail="No student answer text found for evaluation")
+
+        instruction = payload.instruction.strip()
+        instruction_clause = f"\nADDITIONAL RE-EVALUATION INSTRUCTION FROM USER (YOU MUST STRICTLY FOLLOW THIS): {instruction}\n" if instruction else ""
+
+        # Build evaluation prompt
+        if questions:
+            questions_json = json.dumps(questions, indent=2)
+            eval_prompt = f"""You are a strict but fair exam evaluator. Evaluate the student's answers against the question paper and guidelines provided.
+
+{instruction_clause}
+
+QUESTION PAPER DETAILS:
+{questions_json}
+
+STUDENT'S ANSWER SHEET TEXT:
+{answer_text}
+
+For each question in the question paper, evaluate the student's answer and provide:
+1. marksObtained: marks awarded (0 to maxMarks for that question)
+2. reasonForDeduction: why marks were deducted (empty string if full marks)
+3. reasonForFullMarks: why full marks were given (empty string if not full marks)
+4. improvisationTips: suggestions for improvement
+
+Return ONLY valid JSON in this exact format, no markdown, no code fences:
+{{
+  "evaluation": [
+    {{
+      "questionNumber": "1",
+      "marksObtained": 8,
+      "maxMarks": 10,
+      "reasonForDeduction": "Missing key concept X",
+      "reasonForFullMarks": "",
+      "improvisationTips": "Include more examples"
+    }}
+  ],
+  "totalMarks": 25
+}}
+"""
+        else:
+            eval_prompt = f"""You are a strict but fair exam evaluator. You are given the raw text of a question paper, a reference/answer sheet, and a student's answer sheet.
+
+{instruction_clause}
+
+QUESTION PAPER TEXT:
+{qp_text}
+
+REFERENCE/ANSWER SHEET TEXT:
+{rs_text}
+
+STUDENT'S ANSWER SHEET TEXT:
+{answer_text}
+
+For each question you identify, evaluate the student's answer and provide:
+1. questionNumber: the question number (e.g. "1", "1A", "2")
+2. marksObtained: marks awarded
+3. maxMarks: maximum marks for that question
+4. reasonForDeduction: why marks were deducted (empty string if full marks)
+5. reasonForFullMarks: why full marks were given (empty string if not full marks)
+6. improvisationTips: suggestions for improvement
+
+Return ONLY valid JSON in this exact format, no markdown, no code fences:
+{{
+  "evaluation": [
+    {{
+      "questionNumber": "1",
+      "marksObtained": 8,
+      "maxMarks": 10,
+      "reasonForDeduction": "Missing key concept X",
+      "reasonForFullMarks": "",
+      "improvisationTips": "Include more examples"
+    }}
+  ],
+  "totalMarks": 25
+}}
+"""
+
+        raw_eval = evaluate_with_gemini(eval_prompt)
+        evaluation_result = clean_json_output(raw_eval)
+
+        # Update the answer sheet with new evaluation
+        db.answer_sheets.update_one(
+            {"_id": sheet_id_obj},
+            {"$set": {
+                "evaluation": evaluation_result.get("evaluation", []),
+                "totalMarks": evaluation_result.get("totalMarks", 0)
+            }}
+        )
+
+        # Retrieve the updated answer sheet to return
+        updated_sheet = db.answer_sheets.find_one({"_id": sheet_id_obj})
+        student = db.students.find_one({"_id": updated_sheet["student"]})
+        student_name = student["idNumber"] if student else "Unknown Student"
+
+        response_data = {
+            "id": str(updated_sheet["_id"]),
+            "studentName": student_name,
+            "submittedOn": updated_sheet["_id"].generation_time.isoformat(),
+            "totalMarks": updated_sheet.get("totalMarks"),
+            "evaluation": updated_sheet.get("evaluation", [])
+        }
+
+        return {"success": True, "message": "Re-evaluation complete.", "answerSheet": response_data}
+    except Exception as e:
+        print(f"Re-evaluate answer sheet error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+

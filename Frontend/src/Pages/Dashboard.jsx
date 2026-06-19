@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import * as LucideIcons from "lucide-react";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, FileText, Upload, Plus, Eye, X, RefreshCw, Trash2 } from "lucide-react";
+import { Loader2, FileText, Upload, Plus, Eye, X, RefreshCw, Trash2, FileEdit, Calendar } from "lucide-react";
 import { toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -30,6 +30,12 @@ const Dashboard = () => {
   const [loadingSheets, setLoadingSheets] = useState([]);
   const [stats, setStats] = useState({ totalQuestionPapers: 0, totalAnswerSheetsCorrected: 0 });
   const [reEvaluating, setReEvaluating] = useState(false);
+
+  const [showReevalPromptModal, setShowReevalPromptModal] = useState(false);
+  const [reevalPrompt, setReevalPrompt] = useState("");
+  const [reevalSheetId, setReevalSheetId] = useState(null);
+  const [submittingReeval, setSubmittingReeval] = useState(false);
+  const [selectedPaperName, setSelectedPaperName] = useState("");
 
   const navigate = useNavigate();
 
@@ -109,8 +115,9 @@ const Dashboard = () => {
     setUploading(false);
   };
 
-  const handleEvaluatePaper = (paperId) => {
-    setSelectedPaperId(paperId);
+  const handleEvaluatePaper = (paper) => {
+    setSelectedPaperId(paper.id);
+    setSelectedPaperName(paper.name);
     setShowAnswerModal(true);
     setAnswerSheets([]);
     setProgress(0);
@@ -318,6 +325,77 @@ const Dashboard = () => {
     }
   };
 
+  const handleDeleteAnswerSheet = async (sheetId, e) => {
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this corrected answer sheet?")) {
+      return;
+    }
+    try {
+      const res = await axios.delete(`/v1/delete-answer-sheet/${sheetId}`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("institute-auth")}`,
+        },
+      });
+      if (res.data.success) {
+        toast.success("Answer sheet deleted successfully!");
+        setCorrectedSheets((prev) => prev.filter((s) => s.id !== sheetId));
+        setExpandedSheets((prev) => {
+          const copy = { ...prev };
+          delete copy[sheetId];
+          return copy;
+        });
+        fetchStats();
+        fetchPapers();
+      } else {
+        toast.error(res.data.message || "Failed to delete answer sheet.");
+      }
+    } catch (err) {
+      toast.error("Failed to delete answer sheet: " + (err?.response?.data?.detail || err.message));
+    }
+  };
+
+  const handleSubmitReeval = async () => {
+    setSubmittingReeval(true);
+    try {
+      const res = await axios.post(`/v1/re-evaluate-answer-sheet/${reevalSheetId}`, {
+        instruction: reevalPrompt,
+      }, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("institute-auth")}`,
+        },
+      });
+
+      if (res.data.success) {
+        toast.success(res.data.message || "Re-evaluation complete!");
+        
+        // Update list
+        setCorrectedSheets((prev) =>
+          prev.map((s) => (s.id === reevalSheetId ? res.data.answerSheet : s))
+        );
+
+        // Update expanded sheet if open
+        setExpandedSheets((prev) => {
+          if (prev[reevalSheetId]) {
+            return {
+              ...prev,
+              [reevalSheetId]: res.data.answerSheet,
+            };
+          }
+          return prev;
+        });
+
+        setShowReevalPromptModal(false);
+        setReevalPrompt("");
+      } else {
+        toast.error(res.data.message || "Re-evaluation failed.");
+      }
+    } catch (err) {
+      toast.error("Re-evaluation failed: " + (err?.response?.data?.detail || err.message));
+    } finally {
+      setSubmittingReeval(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-black text-white font-sans">
       <div className="relative z-10 container mx-auto px-4 py-20 md:py-32">
@@ -379,34 +457,36 @@ const Dashboard = () => {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.5, delay: index * 0.1 }}
                   whileHover={{ y: -5 }}
-                  className="group bg-gray-900/50 border border-gray-800 hover:border-gray-700 rounded-xl p-8 transition-all h-full cursor-pointer"
+                  className="group bg-gray-900/50 border border-gray-800 hover:border-gray-700 rounded-xl p-8 transition-all h-full cursor-pointer flex flex-col justify-between"
                   onClick={() => handleShowCorrectedSheets(paper)}
                 >
-                  <div className="flex items-start justify-between mb-6">
-                    <div className="w-16 h-16 bg-gray-800 rounded-xl flex items-center justify-center mb-6 group-hover:bg-gray-700 transition-colors duration-300">
-                      <Icon size={32} className="text-white" />
+                  <div className="flex flex-col">
+                    <div className="flex items-start justify-between mb-6">
+                      <div className="w-12 h-12 bg-gray-850 rounded-xl flex items-center justify-center mb-6 group-hover:bg-gray-700 transition-colors duration-300 border border-gray-800">
+                        <Icon size={24} className="text-white" />
+                      </div>
+                    </div>
+
+                    <div className="mb-6">
+                      <h3 className="text-xl font-bold text-gray-300 mb-2 line-clamp-2 group-hover:text-white transition-colors">
+                        {paper.name}
+                      </h3>
+                      <p className="text-sm text-gray-400 mb-1 font-medium">
+                        {paper.createdOn ? formatDate(paper.createdOn) : ""}
+                      </p>
+                      <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                        <Calendar size={14} className="text-gray-500" />
+                        <span>Created: {paper.createdOn ? formatDate(paper.createdOn) : ""}</span>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="mb-6">
-                    <h3 className="text-xl font-bold text-gray-300 mb-2 line-clamp-2 group-hover:text-white transition-colors">
-                      {paper.name}
-                    </h3>
-                    <p className="text-sm text-gray-400 mb-3">
-                      {paper.createdOn ? formatRelativeTime(paper.createdOn) : ""}
-                    </p>
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                      <span>Ready for evaluation</span>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 mt-auto">
                     <motion.button
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
-                      onClick={(e) => { e.stopPropagation(); handleEvaluatePaper(paper.id); }}
-                      className="flex-1 flex items-center justify-center gap-2 py-3 px-4 text-sm font-semibold bg-white text-black rounded-xl hover:bg-gray-200 transition-all duration-200"
+                      onClick={(e) => { e.stopPropagation(); handleEvaluatePaper(paper); }}
+                      className="flex-grow flex items-center justify-center gap-2 py-3 px-4 text-sm font-semibold bg-white text-black rounded-xl hover:bg-gray-200 transition-all duration-200"
                     >
                       <Plus size={16} />
                       Evaluate
@@ -580,33 +660,22 @@ const Dashboard = () => {
                 <div className="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
                   <FileText size={24} className="text-white" />
                 </div>
-                <h2 className="text-2xl font-bold text-white mb-2">Upload Answer Sheets</h2>
-                <p className="text-gray-400">Select multiple answer sheets for evaluation</p>
+                <h2 className="text-2xl font-bold text-white mb-1">Upload Answer Sheets</h2>
+                <p className="text-gray-400 text-sm">Paper: {selectedPaperName}</p>
               </div>
 
               <div className="space-y-6">
                 <div>
-                  <label className="block text-gray-300 text-sm font-semibold mb-3">
+                  <label className="block text-gray-300 text-sm font-semibold mb-2">
                     Answer Sheets (Multiple PDFs)
                   </label>
-                  <div className="relative">
-                    <input
-                      type="file"
-                      accept=".pdf"
-                      multiple
-                      onChange={(e) => setAnswerSheets(Array.from(e.target.files))}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    />
-                    <div className="border-2 border-dashed border-gray-700 rounded-xl p-6 text-center hover:border-white transition-colors">
-                      <Upload className="text-gray-400 mx-auto mb-2" size={32} />
-                      <p className="text-gray-400 text-sm">
-                        {answerSheets.length > 0
-                          ? `${answerSheets.length} file(s) selected`
-                          : "Click to select answer sheets"
-                        }
-                      </p>
-                    </div>
-                  </div>
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    multiple
+                    onChange={(e) => setAnswerSheets(Array.from(e.target.files))}
+                    className="w-full text-gray-300 text-sm focus:outline-none cursor-pointer"
+                  />
 
                   {answerSheets.length > 0 && (
                     <div className="mt-4 max-h-32 overflow-y-auto">
@@ -647,10 +716,11 @@ const Dashboard = () => {
                 whileTap={{ scale: 0.98 }}
                 onClick={handleUploadAnswerSheets}
                 disabled={evaluating || answerSheets.length === 0}
-                className={`mt-8 w-full flex items-center justify-center gap-3 px-6 py-4 text-white font-semibold rounded-xl transition-all duration-200 ${evaluating || answerSheets.length === 0
-                  ? "bg-gray-700 cursor-not-allowed"
-                  : "bg-white text-black hover:bg-gray-200 shadow-lg hover:shadow-xl"
-                  }`}
+                className={`mt-8 w-full flex items-center justify-center gap-3 px-6 py-4 rounded-xl font-semibold border transition-all duration-200 ${
+                  evaluating || answerSheets.length === 0
+                    ? "bg-gray-800/50 text-gray-500 border-gray-700/30 cursor-not-allowed"
+                    : "bg-gray-800 hover:bg-gray-700 text-white border-gray-700 hover:border-gray-500 shadow-lg hover:shadow-xl"
+                }`}
               >
                 {evaluating ? (
                   <>
@@ -751,21 +821,6 @@ const Dashboard = () => {
                       <span>Students Evaluated: <span className="text-white font-semibold">{correctedSheets.length}</span></span>
                     </div>
                   </div>
-                  {correctedSheets.length > 0 && (
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={(e) => { e.stopPropagation(); handleReEvaluate(selectedCorrectedPaper.id); }}
-                      disabled={reEvaluating}
-                      className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 ${reEvaluating ? 'bg-gray-700 cursor-not-allowed text-gray-400' : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/30'}`}
-                    >
-                      {reEvaluating ? (
-                        <><Loader2 size={14} className="animate-spin" /> Re-evaluating...</>
-                      ) : (
-                        <><RefreshCw size={14} /> Re-evaluate All</>
-                      )}
-                    </motion.button>
-                  )}
                 </div>
               </div>
               <div className="max-h-[500px] overflow-y-auto scrollbar-hide">
@@ -788,22 +843,46 @@ const Dashboard = () => {
                             <div className="font-bold text-white">{sheet.studentName || sheet.studentId || "Student"}</div>
                             <div className="text-sm text-gray-400">Submitted: {formatRelativeTime(sheet.submittedOn)}</div>
                           </div>
-                          <div className="text-right ml-4">
-                            <div className="text-xs text-gray-400">Marks Obtained</div>
-                            <div className="text-lg font-bold">
-                              {sheet.totalMarks != null ? (
-                                <span className={
-                                  selectedCorrectedPaper.maxMarks && sheet.totalMarks >= selectedCorrectedPaper.maxMarks * 0.7
-                                    ? 'text-green-400'
-                                    : selectedCorrectedPaper.maxMarks && sheet.totalMarks >= selectedCorrectedPaper.maxMarks * 0.4
-                                      ? 'text-yellow-400'
-                                      : 'text-red-400'
-                                }>
-                                  {sheet.totalMarks}<span className="text-gray-500 text-sm font-normal">/{selectedCorrectedPaper.maxMarks ?? '?'}</span>
-                                </span>
-                              ) : (
-                                <span className="text-gray-500 text-sm">Pending</span>
-                              )}
+                          <div className="flex items-center gap-6 ml-4">
+                            <div className="text-right">
+                              <div className="text-xs text-gray-400 font-medium">Marks Obtained</div>
+                              <div className="text-lg font-bold">
+                                {sheet.totalMarks != null ? (
+                                  <span className={
+                                    selectedCorrectedPaper.maxMarks && sheet.totalMarks >= selectedCorrectedPaper.maxMarks * 0.7
+                                      ? 'text-green-400'
+                                      : selectedCorrectedPaper.maxMarks && sheet.totalMarks >= selectedCorrectedPaper.maxMarks * 0.4
+                                        ? 'text-yellow-400'
+                                        : 'text-red-400'
+                                  }>
+                                    {sheet.totalMarks}<span className="text-gray-500 text-sm font-normal">/{selectedCorrectedPaper.maxMarks ?? '?'}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-500 text-sm">Pending</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 border-l border-gray-700/80 pl-4">
+                              <FileText
+                                onClick={(e) => { e.stopPropagation(); handleToggleSheetDetails(sheet); }}
+                                className="w-5 h-5 text-blue-400 hover:text-blue-300 cursor-pointer transition-colors"
+                                title="View Details"
+                              />
+                              <FileEdit
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setReevalSheetId(sheet.id);
+                                  setReevalPrompt("");
+                                  setShowReevalPromptModal(true);
+                                }}
+                                className="w-5 h-5 text-blue-400 hover:text-blue-300 cursor-pointer transition-colors"
+                                title="Re-evaluate with Prompt"
+                              />
+                              <Trash2
+                                onClick={(e) => handleDeleteAnswerSheet(sheet.id, e)}
+                                className="w-5 h-5 text-red-500 hover:text-red-400 cursor-pointer transition-colors"
+                                title="Delete Sheet"
+                              />
                             </div>
                           </div>
                         </div>
@@ -895,6 +974,75 @@ const Dashboard = () => {
                     ))}
                   </ul>
                 )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {showReevalPromptModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 50 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 50 }}
+              className="bg-gray-900 p-8 rounded-2xl shadow-2xl w-full max-w-md border border-gray-700 relative"
+            >
+              <button
+                onClick={() => { setShowReevalPromptModal(false); setReevalPrompt(""); }}
+                className="absolute top-4 right-4 text-gray-400 hover:text-white p-2 rounded-lg hover:bg-gray-800 transition-colors"
+              >
+                <X size={20} />
+              </button>
+
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold text-white mb-2">Re-evaluate Answer Sheet</h2>
+                <p className="text-gray-400 text-sm">Provide instructions for demo re-evaluation:</p>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <textarea
+                    rows={4}
+                    value={reevalPrompt}
+                    onChange={(e) => setReevalPrompt(e.target.value)}
+                    placeholder="E.g., award extra marks for partially correct answers"
+                    className="w-full bg-gray-800 text-white rounded-xl p-4 border border-gray-700 focus:border-white focus:outline-none transition-colors text-sm resize-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-4 mt-8">
+                <button
+                  onClick={() => { setShowReevalPromptModal(false); setReevalPrompt(""); }}
+                  className="flex-1 py-3 px-4 text-sm font-semibold bg-gray-800 hover:bg-gray-700 text-white rounded-xl transition-all duration-200"
+                >
+                  Cancel
+                </button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleSubmitReeval}
+                  disabled={submittingReeval}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 text-sm font-semibold rounded-xl transition-all duration-200 ${
+                    submittingReeval
+                      ? "bg-gray-700 text-gray-400 cursor-not-allowed"
+                      : "bg-blue-600 hover:bg-blue-500 text-white shadow-lg hover:shadow-xl"
+                  }`}
+                >
+                  {submittingReeval ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    "Submit"
+                  )}
+                </motion.button>
               </div>
             </motion.div>
           </motion.div>
