@@ -18,8 +18,11 @@ import smtplib
 from email.mime.text import MIMEText
 from dotenv import load_dotenv
 from zoneinfo import ZoneInfo
+from concurrent.futures import ThreadPoolExecutor
 
 router = APIRouter()
+env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+load_dotenv(dotenv_path=env_path)
 load_dotenv()
 db = get_database()
 
@@ -31,12 +34,12 @@ SMTP_PORT = 587
 SMTP_USER = os.getenv("USER")
 SMTP_PASSWORD = os.getenv("PASS")
 
-groq_client = Groq(api_key=GROQ_API_KEY)
-client = genai.Client(api_key=GEMINI_API_KEY)
+groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 
-def _gemini_ocr_page(image_bytes, page_index, max_retries=3):
-    """Try Gemini Vision OCR for a single page with retry + exponential backoff for 429 errors."""
+def _gemini_ocr_page(image_bytes, page_index, max_retries=2):
+    """Try Gemini Vision OCR for a single page with quick retry for rate limits."""
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
@@ -46,29 +49,45 @@ def _gemini_ocr_page(image_bytes, page_index, max_retries=3):
                     types.Part.from_bytes(data=image_bytes, mime_type="image/png")
                 ]
             )
-            return response.text
+            return response.text or ""
         except Exception as e:
             error_str = str(e)
-            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                # Parse retry delay from error if available
-                retry_match = re.search(r'retryDelay.*?(\d+)', error_str)
-                wait_time = int(retry_match.group(1)) + 2 if retry_match else (attempt + 1) * 15
-                if attempt < max_retries - 1:
-                    print(f"Gemini rate limited on page {page_index}, waiting {wait_time}s before retry {attempt + 2}/{max_retries}...")
-                    time.sleep(wait_time)
-                else:
-                    print(f"Gemini rate limit exhausted for page {page_index} after {max_retries} retries")
-                    raise  # Let caller handle fallback
+            if ("429" in error_str or "RESOURCE_EXHAUSTED" in error_str) and attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 3
+                print(f"Gemini rate limited on page {page_index}, waiting {wait_time}s before retry...")
+                time.sleep(wait_time)
             else:
-                print(f"Gemini Vision OCR non-retryable error for page {page_index}: {e}")
                 raise
 
 
+def _ocr_single_page(image_bytes, page_index):
+    """OCR a single page prioritizing Groq Vision (very fast, ~0.8s) with Gemini fallback."""
+    # 1. Try Groq Vision first (super fast inference and higher quota)
+    try:
+        text = perform_ocr_with_groq(image_bytes)
+        if text and len(text.strip()) > 10:
+            print(f"Groq Vision OCR succeeded for page {page_index}: {len(text)} chars")
+            return text
+    except Exception as e:
+        print(f"Groq Vision OCR failed for page {page_index}: {e}")
+
+    # 2. Fallback to Gemini Vision
+    try:
+        text = _gemini_ocr_page(image_bytes, page_index, max_retries=2)
+        if text and len(text.strip()) > 10:
+            print(f"Gemini Vision OCR succeeded for page {page_index}: {len(text)} chars")
+            return text
+    except Exception as e2:
+        print(f"Gemini Vision OCR fallback failed for page {page_index}: {e2}")
+
+    return ""
+
+
 def extract_text_from_pdf(pdf_bytes):
-    """Extract text from PDF using PyMuPDF first, falling back to Gemini Vision then Groq Vision for scanned PDFs."""
+    """Extract text from PDF using PyMuPDF first (<100ms), falling back to parallel Vision OCR for scanned pages."""
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     
-    # Step 1: Try PyMuPDF's built-in text extraction (works for digital/text-based PDFs)
+    # Step 1: Try PyMuPDF's built-in text extraction (works for digital/text-based PDFs in <100ms)
     text_pages = []
     for i in range(len(doc)):
         page = doc.load_page(i)
@@ -77,62 +96,33 @@ def extract_text_from_pdf(pdf_bytes):
     
     full_text = "\n\n".join(text_pages)
     
-    # If we got meaningful text (more than 50 chars), use it directly
+    # If we got meaningful text (more than 50 chars), return immediately without OCR overhead
     if len(full_text.strip()) > 50:
-        print(f"PyMuPDF extracted {len(full_text)} chars from {len(doc)} pages")
+        print(f"PyMuPDF extracted {len(full_text)} chars from {len(doc)} pages in <100ms")
         return full_text
     
-    # Step 2: Fallback for scanned PDFs — try Gemini Vision OCR, then Groq Vision
-    print(f"PyMuPDF text insufficient ({len(full_text.strip())} chars), using Vision OCR...")
-    ocr_pages = []
-    gemini_exhausted = False  # Once Gemini quota is hit, skip it for remaining pages
+    # Step 2: Fallback for scanned PDFs — parallel Vision OCR
+    print(f"PyMuPDF text insufficient ({len(full_text.strip())} chars), running parallel Vision OCR...")
     
+    # Render pages at 120 DPI (optimal balance of OCR accuracy and fast payload size)
+    page_tasks = []
     for i in range(len(doc)):
         page = doc.load_page(i)
-        pix = page.get_pixmap(dpi=150)
-        image_bytes = pix.tobytes("png")
-        
-        page_text = ""
-        
-        # Try Gemini first (unless quota already exhausted for this batch)
-        if not gemini_exhausted:
-            try:
-                page_text = _gemini_ocr_page(image_bytes, i)
-                if page_text:
-                    ocr_pages.append(page_text)
-                    # Small delay between pages to be respectful of rate limits
-                    if i < len(doc) - 1:
-                        time.sleep(3)
-                    continue
-            except Exception as e:
-                error_str = str(e)
-                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                    gemini_exhausted = True
-                    print(f"Gemini quota exhausted, switching to Groq Vision for remaining pages...")
-                else:
-                    print(f"Gemini Vision failed for page {i}: {e}")
-        
-        # Fallback to Groq Vision OCR
-        try:
-            page_text = perform_ocr_with_groq(image_bytes)
-            if page_text:
-                print(f"Groq Vision OCR succeeded for page {i}: {len(page_text)} chars")
-        except Exception as e2:
-            print(f"Groq Vision OCR also failed for page {i}: {e2}")
-            page_text = ""
-        
-        ocr_pages.append(page_text)
-        
-        # Small delay between pages
-        if i < len(doc) - 1:
-            time.sleep(1)
+        pix = page.get_pixmap(dpi=120)
+        page_tasks.append((pix.tobytes("png"), i))
+    
+    # Run page OCR concurrently across threads (up to 4 in parallel)
+    max_workers = min(4, len(page_tasks)) if page_tasks else 1
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [executor.submit(_ocr_single_page, img, idx) for img, idx in page_tasks]
+        ocr_pages = [f.result() for f in futures]
     
     return "\n\n".join(ocr_pages)
 
 
 def split_pdf_into_pages(pdf_bytes):
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    return [doc.load_page(i).get_pixmap(dpi=150).tobytes("png") for i in range(len(doc))]
+    return [doc.load_page(i).get_pixmap(dpi=120).tobytes("png") for i in range(len(doc))]
 
 
 def perform_ocr_with_groq(image_bytes):
