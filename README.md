@@ -24,7 +24,7 @@ Educational institutions need an efficient, consistent, and scalable solution to
 - **Provides insights** through dashboards and performance analytics  
 
 ## 4. System Architecture  
-<img width="1523" height="577" alt="GradeX Architecture" src="https://github.com/user-attachments/assets/595eaca8-639e-443f-9bc8-826dabc438a4" />
+<img width="1523" height="577" alt="GradeX Architecture" src="./docs/architecture.png" />
 
 Gradex follows a client-server architecture with clear separation of components:
 
